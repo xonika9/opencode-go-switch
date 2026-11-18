@@ -321,6 +321,30 @@ describe("limits inside the response hook", () => {
     expect(harness.stored()).toBe("c9");
   });
 
+  test("a 403 on the retried account reaches OpenCode instead of the first limit", async () => {
+    const harness = createHarness({
+      accounts,
+      stored: "c9",
+      usage: { c9: headroom(20, T0 + 2 * DAY), c95: headroom(20, T0 + 5 * DAY) },
+      respond: () => new Response("forbidden", { status: 403 }),
+    });
+    await harness.switcher.init();
+    await harness.switcher.refresh();
+
+    const requestInput = await sentWith(harness);
+    expect(keyOf(requestInput.request.headers)).toBe(KEY_C9);
+    harness.setUsage("c9", exhaustedMonthly(T0 + 3 * DAY));
+    const limited = new Response("rate limited", { status: 429 });
+    const responseInput = { model: provider, request: requestInput.request, response: limited };
+    await harness.switcher.onResponse(responseInput);
+
+    expect(harness.sent).toHaveLength(1);
+    expect(harness.sent[0]?.key).toBe(KEY_C95);
+    expect(responseInput.response).not.toBe(limited);
+    expect(responseInput.response.status).toBe(403);
+    expect(await responseInput.response.text()).toBe("forbidden");
+  });
+
   test("a retry that receives a redirect returns it without following it", async () => {
     const harness = createHarness({
       accounts,

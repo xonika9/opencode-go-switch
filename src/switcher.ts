@@ -453,7 +453,10 @@ export function createSwitcher(deps: SwitcherDeps) {
         let response = first;
 
         for (let step = 0; step <= accounts.length; step++) {
-          if (response.status === 403) return;
+          if (response.status === 403) {
+            if (response !== first) input.response = response;
+            return;
+          }
           if (response.status === 401) {
             markInvalid(accountID);
           } else if (response.status === 429 || response.status === 402) {

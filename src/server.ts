@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { Plugin } from "@opencode/plugin";
 import { Schema } from "effect";
 import { Contract } from "./rpc.ts";
@@ -8,11 +9,14 @@ import { DEFAULT_USAGE_URL, fetchUsage } from "./usage.ts";
 
 type Context = Parameters<Parameters<typeof Plugin.define>[0]["setup"]>[0];
 type IntegrationConnection = Awaited<ReturnType<Context["integration"]["get"]>>["data"]["connections"][number];
+type HookName = "http.request" | "http.response" | "retry";
+type Disposable = { dispose: () => Promise<void> | void };
 
 const STORAGE_KEY = "opencode-go-autoswitch.current";
 const DEFAULT_POLL_INTERVAL_MS = 300_000;
 const DEFAULT_USAGE_TIMEOUT_MS = 5_000;
 const DEFAULT_FALLBACK_COOLDOWN_MS = 900_000;
+const UNKNOWN_VERSION = "unknown";
 
 const toolInput = Schema.Struct({ select: Schema.optional(Schema.String) });
 
@@ -21,6 +25,25 @@ interface Options extends SwitcherOptions {
   readonly integrationID: string;
   readonly providerID: string;
 }
+
+/**
+ * The package's own version, read from the file beside the module. Both `src/` and `dist/` sit one
+ * directory below the package root, which is why the import graph must not carry package.json: it
+ * lives outside the build's rootDir.
+ */
+function readVersion(): string {
+  try {
+    const raw = readFileSync(new URL("../package.json", import.meta.url), "utf8");
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return UNKNOWN_VERSION;
+    const version = (parsed as { version?: unknown }).version;
+    return typeof version === "string" && version.trim() !== "" ? version.trim() : UNKNOWN_VERSION;
+  } catch {
+    return UNKNOWN_VERSION;
+  }
+}
+
+const VERSION = readVersion();
 
 function numberOption(value: unknown, fallback: number, min: number): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < min) return fallback;
@@ -40,7 +63,7 @@ export function readOptions(raw: Readonly<Record<string, unknown>>): Options {
     usageUrl: stringOption(raw.usageUrl, DEFAULT_USAGE_URL),
     integrationID: stringOption(raw.integrationID, "opencode-go"),
     providerID: stringOption(raw.providerID, "opencode-go"),
-    version: "dev",
+    version: VERSION,
   };
 }
 
@@ -50,6 +73,7 @@ export default Plugin.define({
     const options = readOptions(ctx.options);
     const connections = new Map<string, IntegrationConnection>();
     const disposers: Array<() => Promise<void> | void> = [];
+    const registeredHooks = new Set<HookName>();
     let emitSwitch: ((event: { label: string; reason: string }) => Promise<void>) | undefined;
 
     const switcher = createSwitcher({
@@ -96,33 +120,39 @@ export default Plugin.define({
       },
     });
 
+    /** Registers one provider-scoped hook once, and remembers it for cleanup. */
+    const addHook = async (name: HookName, register: () => Promise<Disposable>): Promise<void> => {
+      if (registeredHooks.has(name)) return;
+      const hook = await register();
+      registeredHooks.add(name);
+      disposers.push(() => hook.dispose());
+    };
+
+    let starting: Promise<void>;
     try {
-      const request = await ctx.session.hook(
-        "http.request",
-        (input) => switcher.onRequest(input),
-        { providerID: options.providerID },
+      await addHook("http.request", () =>
+        ctx.session.hook("http.request", (input) => switcher.onRequest(input), {
+          providerID: options.providerID,
+        }),
       );
-      disposers.push(() => request.dispose());
 
-      const response = await ctx.session.hook(
-        "http.response",
-        (input) => switcher.onResponse(input),
-        { providerID: options.providerID },
+      await addHook("http.response", () =>
+        ctx.session.hook("http.response", (input) => switcher.onResponse(input), {
+          providerID: options.providerID,
+        }),
       );
-      disposers.push(() => response.dispose());
 
-      const retry = await ctx.session.hook(
-        "retry",
-        (input) => switcher.onRetry(input),
-        { providerID: options.providerID },
+      await addHook("retry", () =>
+        ctx.session.hook("retry", (input) => switcher.onRetry(input), {
+          providerID: options.providerID,
+        }),
       );
-      disposers.push(() => retry.dispose());
 
       const tool = await ctx.tool.transform((editor) => {
         editor.add({
           name: "go_accounts",
           description:
-            "List OpenCode Go accounts with their 5h, weekly, and monthly usage, and show which account is current. Pass select with an account label to make that account current.",
+            "List OpenCode Go accounts with their 5h, weekly, and monthly usage, and show which account is current. Pass select with an account label to make that account current; an exhausted, cooling-down, disabled, or invalid-key account is refused.",
           input: toolInput,
           execute: async (value) => ({ content: await switcher.status(value.select) }),
         });
@@ -134,17 +164,20 @@ export default Plugin.define({
         emitSwitch = (event) => rpc.events.emit("switched", { label: event.label, reason: event.reason });
         disposers.push(() => rpc.dispose());
       } catch {
-        // Toasts are optional; everything else keeps working without them.
+        // Toasts are optional; without them the hooks and the tool still work.
       }
+
+      starting = switcher.start().catch(() => undefined);
     } catch (error) {
       switcher.stop();
       throw error;
     }
 
-    void switcher.start().catch(() => undefined);
-
     return async () => {
+      // Awaited so the timer exists before it is cleared, then disposed registration by registration.
+      await starting;
       switcher.stop();
+      registeredHooks.clear();
       await Promise.allSettled(disposers.map((dispose) => Promise.resolve().then(dispose)));
     };
   },

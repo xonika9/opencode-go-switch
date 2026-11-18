@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Contract } from "../src/rpc.ts";
+import { readOptions } from "../src/server.ts";
 
 const KEY_NINE = "fake-key-cooper9-9f8e7d";
 const KEY_NINETY_FIVE = "fake-key-cooper95-1a2b3c";
@@ -12,6 +13,20 @@ const usagePayload = JSON.stringify({
   },
 });
 
+/** Every window rate limited, so no account has headroom anywhere. */
+const exhaustedPayload = JSON.stringify({
+  usage: {
+    rolling: { status: "rate-limited", percent: 100, resetsAt: "2027-06-01T00:00:00.000Z" },
+    weekly: { status: "rate-limited", percent: 100, resetsAt: "2027-06-01T00:00:00.000Z" },
+    monthly: { status: "rate-limited", percent: 100, resetsAt: "2027-06-01T00:00:00.000Z" },
+  },
+});
+
+const packageVersion = async (): Promise<string> => {
+  const pkg = (await Bun.file(new URL("../package.json", import.meta.url)).json()) as { version: string };
+  return pkg.version;
+};
+
 const originalFetch = globalThis.fetch;
 
 afterEach(() => {
@@ -19,12 +34,20 @@ afterEach(() => {
 });
 
 interface FakeTool {
+  name: string;
+  description: string;
   execute: (input: { select?: string }, context: unknown) => Promise<{ content?: string }>;
+}
+
+interface FakeHook {
+  name: string;
+  options: unknown;
+  run: (input: unknown) => Promise<void>;
 }
 
 interface FakeContextResult {
   readonly ctx: unknown;
-  readonly hooks: Array<{ name: string; options: unknown; run: (input: unknown) => Promise<void> }>;
+  readonly hooks: FakeHook[];
   tool(): FakeTool;
   readonly activated: string[];
   readonly events: Array<{ name: string; data: unknown }>;
@@ -32,13 +55,25 @@ interface FakeContextResult {
   readonly disposed: string[];
 }
 
-function fakeContext(options: Record<string, unknown> = {}): FakeContextResult {
-  const hooks: FakeContextResult["hooks"] = [];
+interface FakeHost {
+  /** Rejects every RPC registration, as a host without the contract would. */
+  readonly rpcThrows?: boolean;
+  /** A registration whose dispose throws, to prove the others still run. */
+  readonly throwOnDispose?: string;
+}
+
+function fakeContext(options: Record<string, unknown> = {}, host: FakeHost = {}): FakeContextResult {
+  const hooks: FakeHook[] = [];
   const activated: string[] = [];
   const events: Array<{ name: string; data: unknown }> = [];
   const storage = new Map<string, unknown>();
   const disposed: string[] = [];
   let tool: FakeTool | undefined;
+
+  const dispose = (name: string) => async () => {
+    disposed.push(name);
+    if (name === host.throwOnDispose) throw new Error("dispose exploded");
+  };
 
   const connections = [
     { type: "credential", id: "c9", label: "cooper9", method: "key" },
@@ -84,11 +119,7 @@ function fakeContext(options: Record<string, unknown> = {}): FakeContextResult {
     session: {
       hook: async (name: string, run: (input: unknown) => Promise<void>, hookOptions: unknown) => {
         hooks.push({ name, options: hookOptions, run });
-        return {
-          dispose: async () => {
-            disposed.push(name);
-          },
-        };
+        return { dispose: dispose(name) };
       },
     },
     tool: {
@@ -98,15 +129,12 @@ function fakeContext(options: Record<string, unknown> = {}): FakeContextResult {
             tool = info as FakeTool;
           },
         });
-        return {
-          dispose: async () => {
-            disposed.push("tool");
-          },
-        };
+        return { dispose: dispose("tool") };
       },
     },
     rpc: {
       register: async (definition: unknown, _handlers: unknown) => {
+        if (host.rpcThrows === true) throw new Error("rpc unavailable");
         if (definition !== Contract) throw new Error("unexpected contract");
         return {
           events: {
@@ -114,9 +142,7 @@ function fakeContext(options: Record<string, unknown> = {}): FakeContextResult {
               events.push({ name, data });
             },
           },
-          dispose: async () => {
-            disposed.push("rpc");
-          },
+          dispose: dispose("rpc"),
         };
       },
     },
@@ -141,6 +167,35 @@ async function loadServer() {
   return module.default;
 }
 
+function requestInput(request = new Request("https://opencode.ai/zen/go/v1/messages", {
+  method: "POST",
+  body: "{}",
+  headers: { authorization: "Bearer managed" },
+})) {
+  return {
+    sessionID: "s",
+    agent: "a",
+    model: { providerID: "opencode-go", modelID: "m" },
+    request,
+  };
+}
+
+function retryInput(status: number) {
+  return {
+    sessionID: "s",
+    agent: "a",
+    model: { providerID: "opencode-go", modelID: "m" },
+    error: { type: "api", status },
+    attempt: 2,
+    decision: { retry: true, delay: 500 } as { retry: boolean; delay?: number },
+  };
+}
+
+async function waitFor(check: () => boolean, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!check() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 5));
+}
+
 describe("server plugin wiring", () => {
   test("registers provider-scoped hooks, the tool, and the RPC contract", async () => {
     globalThis.fetch = (async () => new Response(usagePayload, { status: 200 })) as unknown as typeof fetch;
@@ -151,12 +206,17 @@ describe("server plugin wiring", () => {
     const cleanup = await plugin.setup(fake.ctx as never);
 
     expect(fake.hooks.map((hook) => hook.name)).toEqual(["http.request", "http.response", "retry"]);
-    expect(fake.hooks[0]?.options).toEqual({ providerID: "opencode-go" });
-    expect(fake.hooks[1]?.options).toEqual({ providerID: "opencode-go" });
-    expect(fake.hooks[2]?.options).toEqual({ providerID: "opencode-go" });
+    for (const hook of fake.hooks) expect(hook.options).toEqual({ providerID: "opencode-go" });
 
-    const text = (await fake.tool().execute({}, {})).content ?? "";
-    expect(text.split("\n")[0]).toBe("Go Switch dev");
+    const tool = fake.tool();
+    expect(tool.name).toBe("go_accounts");
+    expect(tool.description).toContain("5h");
+    expect(tool.description).toContain("weekly");
+    expect(tool.description).toContain("monthly");
+    expect(tool.description).toContain("select");
+
+    const text = (await tool.execute({}, {})).content ?? "";
+    expect(text.split("\n")[0]).toBe(`Go Switch ${await packageVersion()}`);
     expect(text).toContain("cooper9");
     expect(text).toContain("cooper95");
     expect(text).not.toContain("fake-key");
@@ -173,15 +233,9 @@ describe("server plugin wiring", () => {
     const plugin = await loadServer();
     const cleanup = await plugin.setup(fake.ctx as never);
 
-    const request = new Request("https://opencode.ai/zen/go/v1/messages", {
-      method: "POST",
-      body: "{}",
-      headers: { authorization: "Bearer managed" },
-    });
-    const input = { sessionID: "s", agent: "a", model: { providerID: "opencode-go", modelID: "m" }, request };
+    const input = requestInput();
     await fake.hooks[0]?.run(input);
 
-    expect(request.headers.get("authorization")).toBe("Bearer managed");
     expect(input.request.headers.get("authorization")).not.toBe("Bearer managed");
     expect(input.request.headers.get("authorization")).toMatch(/^Bearer fake-key-/);
 
@@ -201,6 +255,7 @@ describe("server plugin wiring", () => {
     expect(fake.events).toEqual([{ name: "switched", data: { label: "cooper95", reason: "explicitly selected" } }]);
 
     for (const value of fake.storage.values()) expect(String(value)).not.toContain("fake-key");
+    expect(JSON.stringify(fake.events)).not.toContain("fake-key");
 
     await cleanup?.();
   });
@@ -222,11 +277,121 @@ describe("server plugin wiring", () => {
 
     await cleanup?.();
   });
+
+  test("invalid option values fall back to the defaults", () => {
+    const fallback = readOptions({
+      pollIntervalMs: -1,
+      usageTimeoutMs: "x",
+      fallbackCooldownMs: Number.NaN,
+      usageUrl: "",
+      integrationID: 12,
+      providerID: "   ",
+    });
+    expect(fallback.pollIntervalMs).toBe(300_000);
+    expect(fallback.usageTimeoutMs).toBe(5_000);
+    expect(fallback.fallbackCooldownMs).toBe(900_000);
+    expect(fallback.usageUrl).toBe("https://opencode.ai/zen/go/v1/usage");
+    expect(fallback.integrationID).toBe("opencode-go");
+    expect(fallback.providerID).toBe("opencode-go");
+
+    const kept = readOptions({
+      pollIntervalMs: 0,
+      usageTimeoutMs: 1,
+      fallbackCooldownMs: 1_000,
+      usageUrl: "https://example.test/usage",
+      integrationID: "go-two",
+      providerID: "go-two",
+    });
+    expect(kept.pollIntervalMs).toBe(0);
+    expect(kept.usageTimeoutMs).toBe(1);
+    expect(kept.fallbackCooldownMs).toBe(1_000);
+    expect(kept.usageUrl).toBe("https://example.test/usage");
+    expect(kept.integrationID).toBe("go-two");
+    expect(kept.providerID).toBe("go-two");
+  });
+
+  test("a failed RPC registration leaves the hooks and the tool working", async () => {
+    globalThis.fetch = (async () => new Response(usagePayload, { status: 200 })) as unknown as typeof fetch;
+    const fake = fakeContext({}, { rpcThrows: true });
+    const plugin = await loadServer();
+    const cleanup = await plugin.setup(fake.ctx as never);
+
+    expect(fake.hooks.map((hook) => hook.name)).toEqual(["http.request", "http.response", "retry"]);
+
+    const input = requestInput();
+    await fake.hooks[0]?.run(input);
+    expect(input.request.headers.get("authorization")).toMatch(/^Bearer fake-key-/);
+
+    const text = (await fake.tool().execute({}, {})).content ?? "";
+    expect(text.split("\n")[0]).toBe(`Go Switch ${await packageVersion()}`);
+    expect(text).toContain("cooper9");
+    expect(fake.events).toHaveLength(0);
+
+    await cleanup?.();
+    expect(fake.disposed).toEqual(["http.request", "http.response", "retry", "tool"]);
+  });
+
+  test("the retry hook declines a limit when every account is confirmed exhausted", async () => {
+    globalThis.fetch = (async () => new Response(exhaustedPayload, { status: 200 })) as unknown as typeof fetch;
+    const fake = fakeContext();
+    const plugin = await loadServer();
+    const cleanup = await plugin.setup(fake.ctx as never);
+    await fake.tool().execute({}, {});
+
+    const retry = fake.hooks.find((hook) => hook.name === "retry");
+    const limited = retryInput(429);
+    await retry?.run(limited);
+    expect(limited.decision).toEqual({ retry: false });
+
+    const serverError = retryInput(500);
+    await retry?.run(serverError);
+    expect(serverError.decision).toEqual({ retry: true, delay: 500 });
+
+    await cleanup?.();
+  });
+
+  test("the retry hook leaves the decision alone while an account still has headroom", async () => {
+    globalThis.fetch = (async () => new Response(usagePayload, { status: 200 })) as unknown as typeof fetch;
+    const fake = fakeContext();
+    const plugin = await loadServer();
+    const cleanup = await plugin.setup(fake.ctx as never);
+    await fake.tool().execute({}, {});
+
+    const retry = fake.hooks.find((hook) => hook.name === "retry");
+    const limited = retryInput(429);
+    await retry?.run(limited);
+    expect(limited.decision).toEqual({ retry: true, delay: 500 });
+
+    await cleanup?.();
+  });
+
+  test("cleanup disposes every registration and stops polling, even when one dispose throws", async () => {
+    let polls = 0;
+    globalThis.fetch = (async () => {
+      polls += 1;
+      return new Response(usagePayload, { status: 200 });
+    }) as unknown as typeof fetch;
+    const fake = fakeContext({ pollIntervalMs: 10 }, { throwOnDispose: "http.request" });
+    const plugin = await loadServer();
+    const cleanup = await plugin.setup(fake.ctx as never);
+
+    await waitFor(() => polls >= 4, 3_000);
+    expect(polls).toBeGreaterThanOrEqual(4);
+    expect(fake.disposed).toEqual([]);
+
+    await cleanup?.();
+    expect(fake.disposed).toEqual(["http.request", "http.response", "retry", "tool", "rpc"]);
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const afterCleanup = polls;
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(polls).toBe(afterCleanup);
+  });
 });
 
 describe("TUI plugin", () => {
-  test("shows a toast for a switch event and unsubscribes on cleanup", async () => {
-    const toasts: Array<{ title?: string; message: string }> = [];
+  test("shows a Go Switch toast for a switched event and unsubscribes on cleanup", async () => {
+    const toasts: Array<{ title?: string; message: string; variant?: string }> = [];
     let subscribed: string | undefined;
     let unsubscribed = false;
 
@@ -248,7 +413,7 @@ describe("TUI plugin", () => {
           };
         },
       },
-      ui: { toast: { show: (options: { title?: string; message: string }) => toasts.push(options) } },
+      ui: { toast: { show: (options: { title?: string; message: string; variant?: string }) => toasts.push(options) } },
     };
 
     const plugin = (await import("../src/tui.ts")).default;
@@ -256,11 +421,15 @@ describe("TUI plugin", () => {
 
     expect(subscribed).toBe("switched");
     expect(toasts).toHaveLength(1);
-    expect(toasts[0]?.message).toContain("cooper95");
-    expect(toasts[0]?.message).toContain("cooper9 monthly limit");
-    expect(toasts[0]?.message).not.toContain("fake-key");
+    expect(toasts[0]).toEqual({
+      title: "Go Switch",
+      message: "Now using cooper95 (cooper9 monthly limit)",
+      variant: "info",
+    });
+    expect(JSON.stringify(toasts)).not.toContain("fake-key");
 
-    if (typeof cleanup === "function") await cleanup();
+    expect(typeof cleanup).toBe("function");
+    await cleanup?.();
     expect(unsubscribed).toBe(true);
   });
 });

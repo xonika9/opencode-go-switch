@@ -8,11 +8,10 @@ import { Contract } from "./rpc.ts";
 export default Plugin.define({
   id: "opencode-go-autoswitch-tui",
   setup(context) {
-    if (context.options.toast === false) return;
     const rpc = context.client.rpc(Contract);
     return rpc.events.on("switched", (event) => {
       context.ui.toast.show({
-        title: "OpenCode Go",
+        title: "Go Switch",
         message: `Now using ${event.data.label} (${event.data.reason})`,
         variant: "info",
       });
