@@ -1,4 +1,4 @@
-import { blockOf, causeOf, exhaustedWindow, isEligible, pickNext } from "./select.ts";
+import { causeOf, classify, exhaustedWindow, hasKnownHeadroom, pickNext, usableAsCurrent } from "./select.ts";
 import { formatStatus } from "./status.ts";
 import { createAccount } from "./types.ts";
 import type { Account, AccountInfo } from "./types.ts";
@@ -299,17 +299,17 @@ export function createSwitcher(deps: SwitcherDeps) {
         const now = deps.now();
         let account = currentAccount();
 
-        if (account === undefined || !isEligible(account, now)) {
+        if (account === undefined || !usableAsCurrent(account, now)) {
           const next = pickNext(accounts, now);
           if (next === undefined) return;
           if (next.id !== account?.id) {
-            const cause = account === undefined ? "startup" : causeOf(account, blockOf(account, now));
+            const cause = account === undefined ? "startup" : causeOf(account, classify(account, now));
             const why = account === undefined ? "startup: earliest monthly reset" : `switched: ${cause}`;
             await switchTo(next, why, cause);
           }
           account = next;
         } else {
-          reason = STICKY;
+          reason = hasKnownHeadroom(account, now) ? STICKY : "sticky: usage unknown";
         }
 
         const credential = await deps.resolveKey(account.id).catch(() => undefined);
@@ -362,7 +362,7 @@ export function createSwitcher(deps: SwitcherDeps) {
             target = pickNext(accounts, now, tried);
             if (target === undefined) return;
             const failed = find(accountID);
-            const cause = failed === undefined ? "limit" : causeOf(failed, blockOf(failed, now));
+            const cause = failed === undefined ? "limit" : causeOf(failed, classify(failed, now));
             await switchTo(target, `switched: ${cause}`, cause);
           }
           if (tried.has(target.id)) return;

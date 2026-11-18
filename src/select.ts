@@ -38,14 +38,28 @@ export function exhaustedWindow(usage: Usage, now: number): ExhaustedWindow | nu
   return found;
 }
 
+/** Why an account cannot be used right now. */
 export type Block =
   | { readonly kind: "disabled" }
   | { readonly kind: "invalid-key" }
   | { readonly kind: "exhausted"; readonly label: string; readonly until: number | null }
   | { readonly kind: "cooldown"; readonly label: string; readonly until: number };
 
-/** Why an account cannot be used right now, or null when it can. */
-export function blockOf(account: Account, now: number): Block | null {
+/**
+ * Where an account stands at one moment: usable with known headroom, usable with usage nobody has read
+ * yet, or blocked for a stated reason.
+ */
+export type Classification =
+  | { readonly kind: "eligible" }
+  | { readonly kind: "unknown" }
+  | Block;
+
+/**
+ * The single place that decides whether an account may carry a request. A disabled account, an invalid
+ * key, an exhausted Go window, and a cooldown each report their own block; everything else is eligible
+ * when usage is known and unknown when it was never read or the last read never produced a usage record.
+ */
+export function classify(account: Account, now: number): Classification {
   if (account.disabled) return { kind: "disabled" };
   if (account.invalidKey) return { kind: "invalid-key" };
   if (account.usage !== null) {
@@ -57,53 +71,96 @@ export function blockOf(account: Account, now: number): Block | null {
   if (account.blockedUntil !== null && now < account.blockedUntil) {
     return { kind: "cooldown", label: account.blockedLabel ?? "limit", until: account.blockedUntil };
   }
-  return null;
+  return account.usage === null ? { kind: "unknown" } : { kind: "eligible" };
 }
 
-export function isEligible(account: Account, now: number): boolean {
-  return blockOf(account, now) === null;
+/** True while the account may stay in use: known headroom, or usage nobody has read yet. */
+export function usableAsCurrent(account: Account, now: number): boolean {
+  const kind = classify(account, now).kind;
+  return kind === "eligible" || kind === "unknown";
+}
+
+/** True only when every Go window is known to have headroom. */
+export function hasKnownHeadroom(account: Account, now: number): boolean {
+  return classify(account, now).kind === "eligible";
 }
 
 /** A short phrase naming the account and what stops it, for notifications. */
-export function causeOf(account: Account, block: Block | null): string {
-  if (block === null) return `${account.label} has headroom`;
-  switch (block.kind) {
+export function causeOf(account: Account, state: Classification): string {
+  switch (state.kind) {
+    case "eligible":
+      return `${account.label} has headroom`;
+    case "unknown":
+      return `${account.label} usage unknown`;
     case "disabled":
       return `${account.label} disabled`;
     case "invalid-key":
       return `${account.label} invalid key`;
     case "exhausted":
-      return `${account.label} ${block.label} limit`;
+      return `${account.label} ${state.label} limit`;
     case "cooldown":
-      return `${account.label} limit`;
+      return `${account.label} cooling down`;
   }
 }
 
-export function monthlyReset(account: Account): number | null {
+function monthlyReset(account: Account): number | null {
   return account.usage?.monthly.resetsAt ?? null;
 }
 
-function compare(a: Account, b: Account): number {
-  const resetA = infinity(monthlyReset(a));
-  const resetB = infinity(monthlyReset(b));
-  if (resetA !== resetB) return resetA - resetB;
-  const byLabel = a.label.localeCompare(b.label, "en");
-  if (byLabel !== 0) return byLabel;
-  return a.id.localeCompare(b.id);
+/** Order groups for a forced switch: soonest monthly reset, then no usable reset, then usage unknown. */
+const RESET_FIRST = 0;
+const RESET_LAST = 1;
+const UNKNOWN = 2;
+
+interface Ranked {
+  readonly account: Account;
+  readonly group: number;
+  /** Sort key inside a group: the monthly reset itself, or last place when there is no usable one. */
+  readonly reset: number;
 }
 
-/** Eligible accounts in the order rule 3 wants them. */
+function rankOf(account: Account, now: number): Ranked | null {
+  const state = classify(account, now);
+  if (state.kind === "unknown") {
+    return { account, group: UNKNOWN, reset: Number.POSITIVE_INFINITY };
+  }
+  if (state.kind !== "eligible") return null;
+  const reset = monthlyReset(account);
+  if (reset === null || reset <= now) {
+    return { account, group: RESET_LAST, reset: Number.POSITIVE_INFINITY };
+  }
+  return { account, group: RESET_FIRST, reset };
+}
+
+function compare(a: Ranked, b: Ranked): number {
+  if (a.group !== b.group) return a.group - b.group;
+  if (a.reset !== b.reset) return a.reset - b.reset;
+  const byLabel = a.account.label.localeCompare(b.account.label, "en");
+  if (byLabel !== 0) return byLabel;
+  return a.account.id.localeCompare(b.account.id);
+}
+
+/**
+ * Accounts a forced switch may move to, in the order it wants them: eligible accounts by earliest
+ * monthly reset, eligible accounts without a usable reset next, then accounts with unknown usage.
+ * Ties break by label, then id.
+ */
 export function candidates(
   accounts: readonly Account[],
   now: number,
   exclude?: ReadonlySet<string>,
 ): Account[] {
-  return accounts
-    .filter((account) => !exclude?.has(account.id) && isEligible(account, now))
-    .sort(compare);
+  const ranked: Ranked[] = [];
+  for (const account of accounts) {
+    if (exclude?.has(account.id) === true) continue;
+    const entry = rankOf(account, now);
+    if (entry !== null) ranked.push(entry);
+  }
+  ranked.sort(compare);
+  return ranked.map((entry) => entry.account);
 }
 
-/** The eligible account with the earliest monthly reset; unknown reset goes last. */
+/** The first of `candidates`; undefined when no account may carry a request. */
 export function pickNext(
   accounts: readonly Account[],
   now: number,

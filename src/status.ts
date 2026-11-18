@@ -1,4 +1,4 @@
-import { blockOf, WINDOWS } from "./select.ts";
+import { classify, WINDOWS } from "./select.ts";
 import type { Account } from "./types.ts";
 
 export interface StatusInput {
@@ -30,24 +30,28 @@ export function formatWhen(until: number | null, now: number): string {
 }
 
 function describe(account: Account, now: number): string {
-  const block = blockOf(account, now);
-  if (block === null) return account.usage === null ? "usage unknown" : "eligible";
-  switch (block.kind) {
+  const state = classify(account, now);
+  switch (state.kind) {
+    case "eligible":
+      return "eligible";
+    case "unknown":
+      return "usage unknown";
     case "disabled":
       return "disabled";
     case "invalid-key":
       return "invalid key";
     case "exhausted":
-      return `exhausted: ${block.label} limit until ${formatWhen(block.until, now)}`;
+      return `exhausted: ${state.label} limit until ${formatWhen(state.until, now)}`;
     case "cooldown":
-      return `exhausted: ${block.label} until ${formatWhen(block.until, now)}`;
+      return `cooling down: ${state.label} until ${formatWhen(state.until, now)}`;
   }
 }
 
 function stateText(account: Account, now: number, current: boolean): string {
   if (current) {
-    const block = blockOf(account, now);
-    return block === null ? "current" : `current, ${describe(account, now)}`;
+    const state = classify(account, now);
+    if (state.kind === "eligible" || state.kind === "unknown") return "current";
+    return `current, ${describe(account, now)}`;
   }
   return describe(account, now);
 }

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Selection: eligible accounts still come first by earliest monthly reset, but an eligible account without a usable monthly reset now sorts ahead of every account whose usage is unknown. Accounts with unknown usage are offered after all eligible ones, in label order. A cooldown after an unexplained limit error is reported as cooling down, separately from an exhausted Go window.
 - Package: publishes the compiled `dist` build, with `exports` for the server, TUI, and RPC entries, and a `build` script. `@opencode/plugin` and `effect` are peer dependencies as well as dev dependencies, so the plugin shares the host's Effect runtime instead of loading a second copy.
 - Usage reader: a `403` from the usage endpoint now means unknown usage instead of an invalid key.
 - Usage reader: `resetsAt` accepts epoch milliseconds as well as an ISO string.
