@@ -267,25 +267,39 @@ export function createSwitcher(deps: SwitcherDeps) {
   }
 
   /** Reads usage without letting a slow endpoint hold the request for longer than the budget. */
-  function readUsageBounded(credential: UsageCredential): Promise<UsageResult> {
+  function readUsageBounded(credential: UsageCredential, onTimeout: () => void): Promise<UsageResult> {
     return withDeadline(
       deps.readUsage(credential).catch((): UsageResult => ({ type: "unavailable" })),
       deps.options.limitUsageBudgetMs,
-      () => ({ type: "unavailable" }),
+      () => {
+        onTimeout();
+        return { type: "unavailable" };
+      },
     );
+  }
+
+  /** Per-request memory of a usage endpoint that already ran out its budget once. */
+  interface LimitReads {
+    slow: boolean;
   }
 
   /**
    * Applies a 429/402 to one account. Returns false when a fresh usage read says the account still
    * has headroom in every window (so the limit was not ours and the response should stand).
    */
-  async function noteLimit(id: string | null, response: Response): Promise<boolean> {
+  async function noteLimit(id: string | null, response: Response, reads: LimitReads): Promise<boolean> {
     const account = find(id);
     if (account === undefined) return true;
     const credential = await keyFor(account.id);
     if (credential === undefined) return true;
     const now = deps.now();
-    const result = await readUsageBounded(credential);
+    // Once the endpoint has timed out in this request, the next account would only wait out the same
+    // budget before reaching the same cooldown, so it goes there directly.
+    const result: UsageResult = reads.slow
+      ? { type: "unavailable" }
+      : await readUsageBounded(credential, () => {
+          reads.slow = true;
+        });
     if (result.type === "usage") {
       recordUsage(account, result.usage, now);
       if (exhaustedWindow(result.usage, now) !== null) {
@@ -463,6 +477,7 @@ export function createSwitcher(deps: SwitcherDeps) {
           if (base === undefined) return;
           const tried = new Set<string>(state?.tried ?? []);
           let accountID = state?.accountID ?? current;
+          const reads: LimitReads = { slow: false };
 
           for (let step = 0; step <= accounts.length; step++) {
             if (response.status === 403) {
@@ -472,7 +487,7 @@ export function createSwitcher(deps: SwitcherDeps) {
             if (response.status === 401) {
               markInvalid(accountID);
             } else if (response.status === 429 || response.status === 402) {
-              if (!(await noteLimit(accountID, response))) {
+              if (!(await noteLimit(accountID, response, reads))) {
                 if (response !== first) input.response = response;
                 return;
               }

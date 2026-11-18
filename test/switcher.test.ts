@@ -576,6 +576,29 @@ describe("limits inside the response hook", () => {
     expect(harness.notifications).toEqual([{ label: "cooper95", reason: "cooper9 cooling down" }]);
   }, 10_000);
 
+  test("after one usage read runs out its budget, later accounts in the same request skip the wait", async () => {
+    const harness = createHarness({
+      accounts: allAccounts,
+      stored: "c9",
+      usageStalls: ["c9", "c95", "c99"],
+      options: { limitUsageBudgetMs: 200 },
+      respond: () => new Response("rate limited", { status: 429 }),
+    });
+    await harness.switcher.init();
+
+    const requestInput = await sentWith(harness);
+    const first = new Response("rate limited", { status: 429 });
+    const started = Date.now();
+    const responseInput = { model: provider, request: requestInput.request, response: first };
+    await harness.switcher.onResponse(responseInput);
+    const elapsed = Date.now() - started;
+
+    expect(harness.sent.map((sent) => sent.key)).toEqual([KEY_C95, KEY_C99]);
+    expect(responseInput.response).toBe(first);
+    expect(elapsed).toBeGreaterThanOrEqual(150);
+    expect(elapsed).toBeLessThan(400);
+  }, 10_000);
+
   test("two parallel failures switch once and both retry on the new account", async () => {
     const harness = createHarness({ accounts, stored: "c9", usageThrows: true });
     await harness.switcher.init();

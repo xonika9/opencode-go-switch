@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file. The format is b
 
 ## Unreleased
 
+### Changed
+
+- When the usage endpoint stops answering during a limit, only the first account in a request waits out the two-second usage budget; later accounts in the same request go straight to the cooldown, so three limited accounts cost about two seconds instead of six.
+
 ## 1.0.0 - 2026-11-18
 
 First release.

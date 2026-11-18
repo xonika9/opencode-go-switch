@@ -171,7 +171,7 @@ The endpoint is undocumented and may change. It is an optimization, not a depend
 - the body is capped at 64 KiB while reading, and a request times out after `usageTimeoutMs`;
 - a `401` from the endpoint marks the key invalid until a later poll succeeds;
 - a `403`, any other HTTP error, a redirect, a timeout, a network error, an oversized body, or malformed JSON means unknown usage;
-- a usage read triggered by a limit gets at most two seconds before the plugin falls back to the cooldown described above;
+- a usage read triggered by a limit gets at most two seconds before the plugin falls back to the cooldown described above, and once one has run out that time, later accounts in the same request go straight to the cooldown instead of waiting again;
 - when usage is unknown, the provider's own errors still drive every switch.
 
 ## Privacy
