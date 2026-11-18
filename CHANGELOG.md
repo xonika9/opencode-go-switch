@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Package: publishes the compiled `dist` build, with `exports` for the server, TUI, and RPC entries, and a `build` script. `@opencode/plugin` and `effect` are peer dependencies as well as dev dependencies, so the plugin shares the host's Effect runtime instead of loading a second copy.
+- Usage reader: a `403` from the usage endpoint now means unknown usage instead of an invalid key.
+- Usage reader: `resetsAt` accepts epoch milliseconds as well as an ISO string.
+- Usage reader: a credential's `server` metadata decides the usage URL and its `orgID` is sent as `x-opencode-org-id`; redirects are never followed, and a usage URL that is not `https:` is never requested.
+
 ## 1.0.0
 
 Initial release.

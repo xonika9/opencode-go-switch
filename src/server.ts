@@ -77,10 +77,11 @@ export default Plugin.define({
         const connection = connections.get(accountID);
         if (connection === undefined) return undefined;
         const value = await ctx.integration.connection.resolve(connection);
-        return value?.type === "key" ? value.key : undefined;
+        if (value?.type !== "key") return undefined;
+        return { key: value.key, metadata: value.metadata };
       },
-      readUsage: (key) =>
-        fetchUsage(key, {
+      readUsage: (credential) =>
+        fetchUsage(credential, {
           fetch: (url, init) => globalThis.fetch(url, init),
           url: options.usageUrl,
           timeoutMs: options.usageTimeoutMs,

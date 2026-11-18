@@ -2,7 +2,7 @@ import { blockOf, causeOf, exhaustedWindow, isEligible, pickNext } from "./selec
 import { formatStatus } from "./status.ts";
 import { createAccount } from "./types.ts";
 import type { Account, AccountInfo } from "./types.ts";
-import type { UsageResult } from "./usage.ts";
+import type { UsageCredential, UsageResult } from "./usage.ts";
 import { retryAfterMs } from "./usage.ts";
 
 export interface SwitcherOptions {
@@ -14,8 +14,8 @@ export interface SwitcherOptions {
 export interface SwitcherDeps {
   readonly now: () => number;
   readonly loadAccounts: () => Promise<readonly AccountInfo[]>;
-  readonly resolveKey: (accountID: string) => Promise<string | undefined>;
-  readonly readUsage: (key: string) => Promise<UsageResult>;
+  readonly resolveKey: (accountID: string) => Promise<UsageCredential | undefined>;
+  readonly readUsage: (credential: UsageCredential) => Promise<UsageResult>;
   readonly activate: (accountID: string) => Promise<void>;
   readonly loadCurrent: () => Promise<string | undefined>;
   readonly saveCurrent: (accountID: string) => Promise<void>;
@@ -100,20 +100,20 @@ export function createSwitcher(deps: SwitcherDeps) {
     const snapshot = [...accounts];
     await Promise.all(
       snapshot.map(async (account) => {
-        let key: string | undefined;
+        let credential: UsageCredential | undefined;
         try {
-          key = await deps.resolveKey(account.id);
+          credential = await deps.resolveKey(account.id);
         } catch {
           return;
         }
-        if (key === undefined || key === "") {
+        if (credential === undefined || credential.key === "") {
           account.invalidKey = true;
           account.checkedAt = now;
           return;
         }
         let result: UsageResult;
         try {
-          result = await deps.readUsage(key);
+          result = await deps.readUsage(credential);
         } catch {
           result = { type: "unavailable" };
         }
@@ -188,20 +188,20 @@ export function createSwitcher(deps: SwitcherDeps) {
   async function noteLimit(id: string | null, response: Response): Promise<boolean> {
     const account = find(id);
     if (account === undefined) return true;
-    let key: string | undefined;
+    let credential: UsageCredential | undefined;
     try {
-      key = await deps.resolveKey(account.id);
+      credential = await deps.resolveKey(account.id);
     } catch {
-      key = undefined;
+      credential = undefined;
     }
-    if (key === undefined || key === "") {
+    if (credential === undefined || credential.key === "") {
       account.invalidKey = true;
       return true;
     }
     const now = deps.now();
     let result: UsageResult;
     try {
-      result = await deps.readUsage(key);
+      result = await deps.readUsage(credential);
     } catch {
       result = { type: "unavailable" };
     }
@@ -312,12 +312,12 @@ export function createSwitcher(deps: SwitcherDeps) {
           reason = STICKY;
         }
 
-        const key = await deps.resolveKey(account.id).catch(() => undefined);
-        if (key === undefined || key === "") {
+        const credential = await deps.resolveKey(account.id).catch(() => undefined);
+        if (credential === undefined || credential.key === "") {
           account.invalidKey = true;
           return;
         }
-        const replaced = withKey(input.request, key);
+        const replaced = withKey(input.request, credential.key);
         requests.set(replaced, {
           accountID: account.id,
           tried: new Set([account.id]),
@@ -368,14 +368,14 @@ export function createSwitcher(deps: SwitcherDeps) {
           if (tried.has(target.id)) return;
           tried.add(target.id);
 
-          const key = await deps.resolveKey(target.id).catch(() => undefined);
-          if (key === undefined || key === "") {
+          const credential = await deps.resolveKey(target.id).catch(() => undefined);
+          if (credential === undefined || credential.key === "") {
             markInvalid(target.id);
             return;
           }
           const template = cloneRequest(base);
           if (template === undefined) return;
-          response = await deps.fetch(withKey(template, key));
+          response = await deps.fetch(withKey(template, credential.key));
           accountID = target.id;
         }
       } catch {

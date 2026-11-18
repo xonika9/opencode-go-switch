@@ -12,6 +12,15 @@ export type UsageResult =
 
 const unavailable: UsageResult = { type: "unavailable" };
 
+/** Credential metadata as OpenCode reports it; only a few keys are read, the rest is ignored. */
+export type CredentialMetadata = Readonly<Record<string, unknown>>;
+
+/** Everything a usage request needs from one resolved credential. */
+export interface UsageCredential {
+  readonly key: string;
+  readonly metadata?: CredentialMetadata | undefined;
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
@@ -27,6 +36,8 @@ function parseWindow(value: unknown): UsageWindow | null {
   if (typeof window.resetsAt === "string") {
     const parsed = Date.parse(window.resetsAt);
     if (Number.isFinite(parsed)) resetsAt = parsed;
+  } else if (typeof window.resetsAt === "number" && Number.isFinite(window.resetsAt)) {
+    resetsAt = window.resetsAt;
   }
   return {
     percent,
@@ -56,9 +67,35 @@ export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
 export interface FetchUsageOptions {
   readonly fetch: FetchLike;
+  /** Used unless the credential names its own server; must be `https:`. */
   readonly url: string;
   readonly timeoutMs: number;
   readonly maxBytes?: number;
+}
+
+/**
+ * The usage URL for one credential, or null when it cannot be used safely. A credential that names a
+ * server is read from that server's origin, so the key only ever travels to an https origin.
+ */
+function usageUrl(credential: UsageCredential, configuredUrl: string): string | null {
+  const server = credential.metadata?.server;
+  let raw = configuredUrl;
+  if (typeof server === "string") {
+    let origin: string;
+    try {
+      origin = new URL(server).origin;
+    } catch {
+      return null;
+    }
+    raw = `${origin}/zen/go/v1/usage`;
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return null;
+  }
+  return parsed.protocol === "https:" ? parsed.toString() : null;
 }
 
 /** Reads at most `maxBytes` of the body and returns null when the limit is crossed. */
@@ -92,16 +129,36 @@ async function readCapped(response: Response, maxBytes: number): Promise<string 
   return new TextDecoder().decode(bytes);
 }
 
-export async function fetchUsage(key: string, options: FetchUsageOptions): Promise<UsageResult> {
+function requestHeaders(credential: UsageCredential): Record<string, string> {
+  const headers: Record<string, string> = {
+    authorization: `Bearer ${credential.key}`,
+    accept: "application/json",
+  };
+  const orgID = credential.metadata?.orgID;
+  if (typeof orgID === "string") headers["x-opencode-org-id"] = orgID;
+  return headers;
+}
+
+/**
+ * Reads one credential's usage. Returns a tagged result instead of throwing, and never puts the key in
+ * a result or an error message.
+ */
+export async function fetchUsage(
+  credential: UsageCredential,
+  options: FetchUsageOptions,
+): Promise<UsageResult> {
+  const url = usageUrl(credential, options.url);
+  if (url === null) return unavailable;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Math.max(1, options.timeoutMs));
   try {
-    const response = await options.fetch(options.url, {
+    const response = await options.fetch(url, {
       method: "GET",
-      headers: { authorization: `Bearer ${key}`, accept: "application/json" },
+      headers: requestHeaders(credential),
+      redirect: "manual",
       signal: controller.signal,
     });
-    if (response.status === 401 || response.status === 403) {
+    if (response.status === 401) {
       await response.body?.cancel().catch(() => undefined);
       return { type: "invalid-key" };
     }

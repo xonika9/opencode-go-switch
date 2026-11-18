@@ -1,42 +1,77 @@
 {
   "name": "opencode-go-autoswitch",
   "version": "1.0.0",
-  "description": "OpenCode plugin that keeps you on a working OpenCode Go subscription and switches automatically when a quota runs out.",
+  "description": "Go Switch: an OpenCode plugin that keeps you on a working OpenCode Go subscription and switches accounts automatically when a quota runs out.",
   "type": "module",
   "license": "MIT",
+  "author": "xonika9",
+  "homepage": "https://github.com/xonika9/opencode-go-autoswitch#readme",
+  "bugs": {
+    "url": "https://github.com/xonika9/opencode-go-autoswitch/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/xonika9/opencode-go-autoswitch.git"
   },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "opencode-go",
+    "plugin",
+    "account-switching",
+    "rate-limit",
+    "quota",
+    "failover"
+  ],
+  "main": "./dist/server.js",
+  "types": "./dist/server.d.ts",
   "exports": {
-    ".": "./src/server.ts",
-    "./server": "./src/server.ts",
-    "./tui": "./src/tui.ts",
-    "./rpc": "./src/rpc.ts"
+    ".": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    },
+    "./tui": {
+      "types": "./dist/tui.d.ts",
+      "import": "./dist/tui.js"
+    },
+    "./rpc": {
+      "types": "./dist/rpc.d.ts",
+      "import": "./dist/rpc.js"
+    }
   },
   "files": [
-    "src"
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
   ],
+  "sideEffects": false,
+  "engines": {
+    "bun": ">=1.2",
+    "node": ">=20"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "check": "bun run typecheck && bun test"
-  },
-  "dependencies": {
-    "@opencode/plugin": "2.3.0",
-    "effect": "4.1.0"
-  },
-  "devDependencies": {
-    "@types/bun": "latest",
-    "solid-js": "^2.0.1",
-    "typescript": "^5.9.3"
+    "check": "bun run typecheck && bun test",
+    "build": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "bun run check && bun run build"
   },
   "peerDependencies": {
-    "solid-js": ">=1.9.0"
+    "@opencode/plugin": ">=2.3.0 <3",
+    "effect": "^4.1.0"
   },
-  "peerDependenciesMeta": {
-    "solid-js": {
-      "optional": true
-    }
+  "devDependencies": {
+    "@opencode/plugin": "2.3.0",
+    "@types/bun": "1.4.4",
+    "effect": "4.1.0",
+    "typescript": "^5.9.3"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

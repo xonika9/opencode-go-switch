@@ -24,7 +24,7 @@ This plugin makes that switch for you. It keeps you on the account you are alrea
 
 ## Requirements
 
-- **OpenCode 2.3.0 or newer.** The plugin is built and tested against the 2.3.0 plugin API, and pins `@opencode/plugin` to that version.
+- **OpenCode 2.3.0 or newer.** The plugin is built and tested against the 2.3.0 plugin API and accepts `@opencode/plugin` `>=2.3.0 <3`. `effect` is a peer dependency as well, so the plugin shares the host's Effect runtime instead of loading a second copy.
 - **At least one OpenCode Go account** saved as an `opencode-go` credential, for example through `opencode auth login`. Switching needs two or more; with one account the plugin still reports status but has nowhere to go.
 - **Bun**, for development and tests only. OpenCode runs the plugin itself.
 
@@ -67,7 +67,7 @@ Options go in the same entry:
 }
 ```
 
-Restart OpenCode after changing the configuration. A local install reads the TypeScript sources in place, so keep the directory where you put it.
+Restart OpenCode after changing the configuration. The package entry points point at the compiled files in `dist`, so run `bun run build` in a local clone and keep the directory where you put it.
 
 ## Options
 
@@ -120,13 +120,14 @@ select <account label> in go_accounts
 
 ## Usage data
 
-The plugin reads `GET https://opencode.ai/zen/go/v1/usage` with the account key as a bearer token. It expects three windows (`rolling`, `weekly`, `monthly`), each with a status, a percentage from 0 to 100, and a reset time.
+The plugin reads `GET https://opencode.ai/zen/go/v1/usage` with the account key as a bearer token. When a credential's metadata names a `server`, the request goes to that server's origin instead of the default endpoint, and an `orgID` in the metadata is sent as `x-opencode-org-id`. A usage URL that is not `https:`, or one that does not parse, is never requested and counts as unknown usage. The plugin expects three windows (`rolling`, `weekly`, `monthly`), each with a status, a percentage from 0 to 100, and a reset time as an ISO string or epoch milliseconds.
 
 This endpoint is undocumented. It can change or disappear without notice. The plugin treats it as an optimization, not a dependency:
 
-- a network error, timeout, HTTP error, oversized body, or unexpected shape means "usage unknown" for that account and nothing else breaks;
+- a network error, timeout, HTTP error, redirect, oversized body, or unexpected shape means "usage unknown" for that account and nothing else breaks;
 - when usage is unknown, the plugin still switches on the provider's own limit responses (`429`, `402`) and on invalid-key responses (`401`, `403`);
-- a `401` or `403` from the usage endpoint marks the key invalid until a later poll succeeds;
+- a `401` from the usage endpoint marks the key invalid until a later poll succeeds;
+- a `403` from the usage endpoint means the endpoint has no usage data for that key, so usage stays unknown and the key is not marked invalid;
 - responses are capped at 64 KiB while reading, so a broken endpoint cannot exhaust memory.
 
 ## Privacy
@@ -151,6 +152,7 @@ bun install
 bun run typecheck
 bun test
 bun run check
+bun run build
 ```
 
 Tests use a fake network and a fake plugin context: no real keys, no real requests. See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request, and [SECURITY.md](SECURITY.md) for vulnerability reports.

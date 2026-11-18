@@ -109,11 +109,14 @@ export function createHarness(input: HarnessOptions): Harness {
         label: account.label,
         disabled: account.disabled === true,
       })),
-    resolveKey: async (accountID) =>
-      input.unresolvable?.includes(accountID) === true ? undefined : keys.get(accountID),
-    readUsage: async (key) => {
+    resolveKey: async (accountID) => {
+      if (input.unresolvable?.includes(accountID) === true) return undefined;
+      const key = keys.get(accountID);
+      return key === undefined ? undefined : { key };
+    },
+    readUsage: async (credential) => {
       if (input.usageThrows === true) throw new Error("usage endpoint exploded");
-      const account = byKey(key);
+      const account = byKey(credential.key);
       if (account === undefined) return { type: "unavailable" };
       return usageResults.get(account.id) ?? { type: "unavailable" };
     },
