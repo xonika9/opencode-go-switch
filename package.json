@@ -1,0 +1,42 @@
+{
+  "name": "opencode-go-autoswitch",
+  "version": "1.0.0",
+  "description": "OpenCode plugin that keeps you on a working OpenCode Go subscription and switches automatically when a quota runs out.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xonika9/opencode-go-autoswitch.git"
+  },
+  "exports": {
+    ".": "./src/server.ts",
+    "./server": "./src/server.ts",
+    "./tui": "./src/tui.ts",
+    "./rpc": "./src/rpc.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "check": "bun run typecheck && bun test"
+  },
+  "dependencies": {
+    "@opencode/plugin": "2.3.0",
+    "effect": "4.1.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "solid-js": "^2.0.1",
+    "typescript": "^5.9.3"
+  },
+  "peerDependencies": {
+    "solid-js": ">=1.9.0"
+  },
+  "peerDependenciesMeta": {
+    "solid-js": {
+      "optional": true
+    }
+  }
+}

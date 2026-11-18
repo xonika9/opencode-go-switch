@@ -1,0 +1,73 @@
+name: Bug report
+description: Report reproducible OpenCode Go Autoswitch behavior
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Remove API keys, key fragments, credentials, private account identifiers, and personal paths.
+        Use private vulnerability reporting for sensitive security findings.
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      placeholder: 1.0.0
+    validations:
+      required: true
+  - type: input
+    id: opencode-version
+    attributes:
+      label: OpenCode version and client
+      description: The version from `opencode --version` and the client you use it through, such as the TUI or T3 Code.
+      placeholder: 2.3.0, TUI
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Operating system
+      placeholder: macOS 15
+    validations:
+      required: true
+  - type: textarea
+    id: options
+    attributes:
+      label: Plugin options
+      description: Paste the `plugins` entry with your options, minus any personal paths.
+      render: jsonc
+  - type: textarea
+    id: accounts
+    attributes:
+      label: Account status
+      description: Paste sanitized `go_accounts` output. Remove labels you do not want public.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: Which account should have been used, and why.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal reproduction
+      description: The prompt or action, plus what happened. Include error text only after checking it for key material.
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Public data check
+      options:
+        - label: I removed API keys, key fragments, credentials, and personal paths.
+          required: true
