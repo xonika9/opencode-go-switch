@@ -30,9 +30,9 @@ The plugin only reacts to the provider response for the `opencode-go` provider (
 
 | Response | What usage says | What the plugin does |
 | --- | --- | --- |
-| `429` or `402` | A fresh read shows headroom in every window | Leaves the response alone: this limit did not come from a Go window. |
+| `429` or `402` | A fresh read shows no window flagged as limited | Leaves the response alone: this limit did not come from a Go window. |
 | `429` or `402` | A fresh read confirms an exhausted window | Marks the account exhausted, switches, and retries with the next account. |
-| `429` or `402` | Usage cannot be read (timeout, network error, HTTP error, odd shape) | Sets the account aside until `Retry-After`, or `fallbackCooldownMs` when the header is missing, switches, and retries. |
+| `429` or `402` | Usage cannot be read (timeout, network error, HTTP error, odd shape), or a window is still flagged as limited after its reset time | Sets the account aside until `Retry-After`, or `fallbackCooldownMs` when the header is missing, switches, and retries. A later successful usage read does not end that cooldown early. |
 | `401` | Either | Marks the key invalid, switches, and retries. |
 | `403` | Either | Returns the response unchanged: no switch, no state change. |
 | Any other status | Either | Returns the response unchanged. |
@@ -117,7 +117,7 @@ All options are optional. Invalid values fall back to the default.
 | Option | Default | Effect |
 | --- | --- | --- |
 | `pollIntervalMs` | `300000` (5 minutes) | How often every account's usage is refreshed in the background. Usage is also read at startup and after a limit. Set `0` to stop background polling; usage is then read on demand. |
-| `usageTimeoutMs` | `5000` | Timeout for one usage request. A timeout counts as unknown usage, not as an exhausted account. |
+| `usageTimeoutMs` | `5000` | Timeout for one usage request. A timeout counts as unknown usage, not as an exhausted account. It also caps how long the first request after startup waits for the startup usage read. |
 | `fallbackCooldownMs` | `900000` (15 minutes) | How long an account is set aside after a limit when neither usage data nor `Retry-After` says when it recovers. |
 | `usageUrl` | `https://opencode.ai/zen/go/v1/usage` | Usage endpoint. Change it only if the endpoint moves. It must be `https`. |
 | `integrationID` | `opencode-go` | Integration whose key credentials are the accounts. |
@@ -142,7 +142,7 @@ last switch: <from> → <to>, <cause>, <timestamp> (<ago>)
   monthly resets <date> (<relative time>)
 ```
 
-The line order is fixed: version, account count, current account with the reason it is current, the last switch (`last switch: none` until the first one), then one block per account; the current account carries `(current)` after its label. Each account block shows its state, the 5h, weekly, and monthly percentages, and the monthly reset (`monthly reset unknown` when the endpoint gave no usable time). States are `eligible`, `usage unknown`, `exhausted: <window> until <time>`, `cooling down until <time>`, `invalid key`, and `disabled`. Percentages get one decimal only when a window is nearly full and a whole number would hide it.
+The line order is fixed: version, account count, current account with the reason it is current (or, when a later poll found it blocked, its blocking state), the last switch (`last switch: none` until the first one), then one block per account; the current account carries `(current)` after its label. Each account block shows its state, the 5h, weekly, and monthly percentages, and the monthly reset (`monthly reset unknown` when the endpoint gave no usable time). States are `eligible`, `usage unknown`, `exhausted: <window> until <time>`, `cooling down until <time>`, `invalid key`, and `disabled`. Percentages get one decimal only when a window is nearly full and a whole number would hide it.
 
 To choose an account yourself:
 

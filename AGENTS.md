@@ -21,7 +21,7 @@ This repository is the public source of an OpenCode V2 plugin that switches betw
 
 - Never log, print, return, store, or commit API keys or key fragments. Read them from OpenCode's credential store into memory only.
 - Keep tool output, errors, tests, and fixtures free of key material.
-- Do not add telemetry or send usage data anywhere except the configured usage endpoint.
+- Do not add telemetry or send usage data anywhere except the configured usage endpoint, or the https origin named in a credential's `server` metadata.
 
 ## Tests
 

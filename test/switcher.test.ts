@@ -56,6 +56,35 @@ describe("choosing an account for a request", () => {
     expect(harness.notifications).toEqual([{ label: "cooper95", reason: "startup: earliest monthly reset" }]);
   });
 
+  test("the first request goes out on the label order when the startup poll never answers", async () => {
+    const harness = createHarness({ accounts, usageStalls: ["c9", "c95"], options: { usageTimeoutMs: 20 } });
+    await harness.switcher.init();
+
+    const input = { model: provider, request: jsonRequest() };
+    await harness.switcher.onRequest(input);
+
+    expect(keyOf(input.request.headers)).toBe(KEY_C9);
+    expect(harness.stored()).toBe("c9");
+    expect(harness.notifications).toEqual([{ label: "cooper9", reason: "startup: earliest monthly reset" }]);
+  }, 10_000);
+
+  test("two first requests at once pick and announce a single account", async () => {
+    const harness = createHarness({
+      accounts,
+      usage: { c9: exhaustedMonthly(T0 + 4 * DAY), c95: headroom(20, T0 + 23 * DAY) },
+    });
+    await harness.switcher.init();
+
+    const [one, two] = await Promise.all([sentWith(harness), sentWith(harness)]);
+
+    expect(keyOf(one.request.headers)).toBe(KEY_C95);
+    expect(keyOf(two.request.headers)).toBe(KEY_C95);
+    expect(harness.activated).toEqual(["c95"]);
+    expect(harness.saved).toEqual(["c95"]);
+    expect(harness.notifications).toHaveLength(1);
+    expect(await harness.switcher.status()).toContain("last switch: none → cooper95");
+  });
+
   test("a monthly-exhausted current account switches before the request goes out", async () => {
     const harness = createHarness({
       accounts,
@@ -259,6 +288,56 @@ describe("limits inside the response hook", () => {
     expect(harness.stored()).toBe("c9");
   });
 
+  test("a window still flagged after its reset time switches instead of leaving the 429", async () => {
+    const stale = { type: "usage" as const, usage: usage({ monthly: { percent: 100, limited: true, resetsAt: T0 - DAY } }) };
+    const harness = createHarness({
+      accounts,
+      stored: "c9",
+      usage: { c9: stale, c95: headroom(20, T0 + 5 * DAY) },
+    });
+    await harness.switcher.init();
+    await harness.switcher.refresh();
+
+    const requestInput = await sentWith(harness);
+    expect(keyOf(requestInput.request.headers)).toBe(KEY_C9);
+    const responseInput = {
+      model: provider,
+      request: requestInput.request,
+      response: new Response("rate limited", { status: 429 }),
+    };
+    await harness.switcher.onResponse(responseInput);
+
+    expect(responseInput.response.status).toBe(200);
+    expect(harness.sent.map((sent) => sent.key)).toEqual([KEY_C95]);
+    expect(harness.stored()).toBe("c95");
+    expect(await harness.switcher.status()).toContain(
+      `cooper9 - cooling down until ${new Date(T0 + 15 * MINUTE).toISOString()}`,
+    );
+  });
+
+  test("a 429 whose usage read reports an invalid key marks it and retries on the next account", async () => {
+    const harness = createHarness({
+      accounts,
+      stored: "c9",
+      usage: { c9: headroom(20, T0 + 2 * DAY), c95: headroom(20, T0 + 5 * DAY) },
+    });
+    await harness.switcher.init();
+    await harness.switcher.refresh();
+    harness.setUsage("c9", { type: "invalid-key" });
+
+    const requestInput = await sentWith(harness);
+    const responseInput = {
+      model: provider,
+      request: requestInput.request,
+      response: new Response("rate limited", { status: 429 }),
+    };
+    await harness.switcher.onResponse(responseInput);
+
+    expect(responseInput.response.status).toBe(200);
+    expect(harness.sent[0]?.key).toBe(KEY_C95);
+    expect(await harness.switcher.status()).toContain("cooper9 - invalid key");
+  });
+
   test("a 402 is handled like a 429", async () => {
     const harness = createHarness({
       accounts,
@@ -447,6 +526,28 @@ describe("limits inside the response hook", () => {
     expect(await dated.switcher.status()).toContain(
       `cooper9 - cooling down until ${new Date(T0 + 5 * MINUTE).toISOString()}`,
     );
+  });
+
+  test("a successful usage read does not end a Retry-After cooldown early", async () => {
+    const harness = createHarness({ accounts, stored: "c9", usage: { c95: headroom(20, T0 + 5 * DAY) } });
+    await harness.switcher.init();
+
+    const requestInput = await sentWith(harness);
+    await harness.switcher.onResponse({
+      model: provider,
+      request: requestInput.request,
+      response: new Response("rate limited", { status: 429, headers: { "retry-after": "3600" } }),
+    });
+    harness.setUsage("c9", headroom(20, T0 + 2 * DAY));
+    await harness.switcher.refresh();
+
+    const cooling = `cooper9 - cooling down until ${new Date(T0 + 60 * MINUTE).toISOString()}`;
+    expect(await harness.switcher.status()).toContain(cooling);
+    expect(await harness.switcher.status("cooper9")).toContain('Refused: "cooper9" is cooling down');
+    expect(harness.stored()).toBe("c95");
+
+    harness.setNow(T0 + 61 * MINUTE);
+    expect(await harness.switcher.status()).toContain("cooper9 - eligible");
   });
 
   test("a usage read slower than its budget counts as unreachable", async () => {
@@ -732,6 +833,25 @@ describe("status text", () => {
     expect(text).toContain("5h 99.4% · weekly 13% · monthly 100%");
   });
 
+  test("the current line shows the blocking state once a poll finds the current account exhausted", async () => {
+    const harness = createHarness({
+      accounts,
+      stored: "c9",
+      usage: { c9: headroom(20, T0 + 4 * DAY), c95: headroom(20, T0 + 5 * DAY) },
+    });
+    await harness.switcher.init();
+    await harness.switcher.refresh();
+    await sentWith(harness);
+    expect(await harness.switcher.status()).toContain("current: cooper9 - sticky: still has headroom");
+
+    harness.setUsage("c9", exhaustedMonthly(T0 + 4 * DAY));
+    await harness.switcher.refresh();
+
+    const text = await harness.switcher.status();
+    expect(text).toContain(`current: cooper9 - exhausted: monthly until ${day(T0 + 4 * DAY)}`);
+    expect(text).not.toContain("still has headroom");
+  });
+
   test("keeps the last switch and its cause after several sticky requests", async () => {
     const harness = createHarness({
       accounts,
@@ -782,6 +902,17 @@ describe("status text", () => {
 });
 
 describe("hook safety", () => {
+  test("a credential store that fails to answer does not mark the key invalid", async () => {
+    const harness = createHarness({ accounts, stored: "c9", resolveThrows: true });
+    await harness.switcher.init();
+
+    const input = { model: provider, request: jsonRequest() };
+    await harness.switcher.onRequest(input);
+
+    expect(keyOf(input.request.headers)).toBe("opencode-managed");
+    expect(await harness.switcher.status()).not.toContain("invalid key");
+  });
+
   test("a hook resolves even when a dependency throws", async () => {
     const notifyFails = createHarness({
       accounts,

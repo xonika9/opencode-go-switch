@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { candidates, classify, hasKnownHeadroom, pickNext, usableAsCurrent } from "../src/select.ts";
+import { candidates, classify, pickNext, usableAsCurrent } from "../src/select.ts";
 import { createAccount } from "../src/types.ts";
 import type { Account, Usage } from "../src/types.ts";
 import { DAY, HOUR, T0, usage, win } from "./support.ts";
@@ -133,17 +133,15 @@ describe("classification", () => {
     expect(classify(invalid, T0)).toEqual({ kind: "invalid-key" });
   });
 
-  test("unknown usage is usable as current but is not known headroom", () => {
+  test("unknown usage is usable as current but only known usage is eligible", () => {
     const known = account("a", "known", usage({ monthly: win(10, T0 + DAY) }));
     const unknown = account("b", "unknown");
     const exhausted = account("c", "exhausted", usage({ monthly: win(100, T0 + DAY) }));
 
+    expect(classify(known, T0)).toEqual({ kind: "eligible" });
     expect(classify(unknown, T0)).toEqual({ kind: "unknown" });
     expect(usableAsCurrent(known, T0)).toBe(true);
     expect(usableAsCurrent(unknown, T0)).toBe(true);
     expect(usableAsCurrent(exhausted, T0)).toBe(false);
-    expect(hasKnownHeadroom(known, T0)).toBe(true);
-    expect(hasKnownHeadroom(unknown, T0)).toBe(false);
-    expect(hasKnownHeadroom(exhausted, T0)).toBe(false);
   });
 });

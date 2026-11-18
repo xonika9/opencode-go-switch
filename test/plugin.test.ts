@@ -16,9 +16,9 @@ const usagePayload = JSON.stringify({
 /** Every window rate limited, so no account has headroom anywhere. */
 const exhaustedPayload = JSON.stringify({
   usage: {
-    rolling: { status: "rate-limited", percent: 100, resetsAt: "2027-06-01T00:00:00.000Z" },
-    weekly: { status: "rate-limited", percent: 100, resetsAt: "2027-06-01T00:00:00.000Z" },
-    monthly: { status: "rate-limited", percent: 100, resetsAt: "2027-06-01T00:00:00.000Z" },
+    rolling: { status: "rate-limited", percent: 100, resetsAt: "2099-01-01T00:00:00.000Z" },
+    weekly: { status: "rate-limited", percent: 100, resetsAt: "2099-01-01T00:00:00.000Z" },
+    monthly: { status: "rate-limited", percent: 100, resetsAt: "2099-01-01T00:00:00.000Z" },
   },
 });
 
@@ -68,6 +68,8 @@ interface FakeHost {
   readonly rpcThrows?: boolean;
   /** A registration whose dispose throws, to prove the others still run. */
   readonly throwOnDispose?: string;
+  /** Rejects the tool registration, failing setup after the hooks are registered. */
+  readonly toolThrows?: boolean;
 }
 
 function fakeContext(options: Record<string, unknown> = {}, host: FakeHost = {}): FakeContextResult {
@@ -132,6 +134,7 @@ function fakeContext(options: Record<string, unknown> = {}, host: FakeHost = {})
     },
     tool: {
       transform: async (apply: (editor: { add: (info: unknown) => void }) => void) => {
+        if (host.toolThrows === true) throw new Error("tool registration refused");
         apply({
           add: (info: unknown) => {
             tool = info as FakeTool;
@@ -394,6 +397,15 @@ describe("server plugin wiring", () => {
     const afterCleanup = polls;
     await new Promise((resolve) => setTimeout(resolve, 60));
     expect(polls).toBe(afterCleanup);
+  });
+
+  test("a setup that fails part way disposes the hooks it already registered", async () => {
+    stubFetch(() => new Response(usagePayload, { status: 200 }));
+    const fake = fakeContext({}, { toolThrows: true });
+    const plugin = await loadServer();
+
+    await expect(plugin.setup(fake.ctx as never)).rejects.toThrow("tool registration refused");
+    expectDisposed(fake.disposed, ["http.request", "http.response", "retry"]);
   });
 });
 

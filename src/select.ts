@@ -74,15 +74,30 @@ export function classify(account: Account, now: number): Classification {
   return account.usage === null ? { kind: "unknown" } : { kind: "eligible" };
 }
 
-/** True while the account may stay in use: known headroom, or usage nobody has read yet. */
-export function usableAsCurrent(account: Account, now: number): boolean {
-  const kind = classify(account, now).kind;
-  return kind === "eligible" || kind === "unknown";
+/** True for the two states in which an account may carry a request: known headroom, or usage nobody has read yet. */
+export function isUsable(
+  state: Classification,
+): state is { readonly kind: "eligible" } | { readonly kind: "unknown" } {
+  return state.kind === "eligible" || state.kind === "unknown";
 }
 
-/** True only when every Go window is known to have headroom. */
-export function hasKnownHeadroom(account: Account, now: number): boolean {
-  return classify(account, now).kind === "eligible";
+/** True while the account may stay in use. */
+export function usableAsCurrent(account: Account, now: number): boolean {
+  return isUsable(classify(account, now));
+}
+
+/**
+ * True when the account is out for a reason a plain retry cannot change: an exhausted window, an invalid
+ * key, or a disabled connection. A cooldown or unknown usage is not confirmed: a retry may still succeed.
+ */
+export function confirmedOut(account: Account, now: number): boolean {
+  const kind = classify(account, now).kind;
+  return kind === "exhausted" || kind === "invalid-key" || kind === "disabled";
+}
+
+/** True when the endpoint still flags any window as limited, whatever its reset time says. */
+export function anyWindowLimited(usage: Usage): boolean {
+  return WINDOWS.some((spec) => usage[spec.key].limited);
 }
 
 /** A short phrase naming the account and what stops it, for notifications. */

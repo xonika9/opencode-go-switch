@@ -10,7 +10,7 @@ First release.
 
 - Stays on the current OpenCode Go account while it has headroom in the 5-hour, weekly, and monthly windows, so ordinary requests keep the provider prompt cache.
 - When that account runs out, switches to the next eligible account inside the same request and re-sends it with the new key; eligible accounts are ordered by earliest monthly reset, then those without a usable reset, then unknown usage.
-- Reads usage from the Go usage endpoint and falls back to the provider's own limits: a `429`/`402` that fresh usage does not explain is left alone, and an unreadable limit sets the account aside for `Retry-After` or `fallbackCooldownMs`.
+- Reads usage from the Go usage endpoint and falls back to the provider's own limits: a `429`/`402` that fresh usage does not explain is left alone, and an unreadable limit, or a window still flagged after its reset time, sets the account aside for `Retry-After` or `fallbackCooldownMs`, and a later successful usage read does not shorten that.
 - Marks a `401` as an invalid key, leaves `403` untouched, and declines OpenCode's retry only when every account is confirmed unusable.
 - Remembers the current account across restarts, marks the active credential on every switch, and shows a toast in the terminal UI.
 - Adds the `go_accounts` tool for status and explicit selection, with refusals for accounts that cannot serve a request.

@@ -120,6 +120,10 @@ export default Plugin.define({
       },
     });
 
+    const disposeAll = async (): Promise<void> => {
+      await Promise.allSettled(disposers.map((dispose) => Promise.resolve().then(dispose)));
+    };
+
     const addHook = async (register: () => Promise<Disposable>): Promise<void> => {
       const hook = await register();
       disposers.push(() => hook.dispose());
@@ -166,12 +170,13 @@ export default Plugin.define({
       void switcher.start().catch(() => undefined);
     } catch (error) {
       await switcher.stop();
+      await disposeAll();
       throw error;
     }
 
     return async () => {
       await switcher.stop();
-      await Promise.allSettled(disposers.map((dispose) => Promise.resolve().then(dispose)));
+      await disposeAll();
     };
   },
 });
