@@ -88,6 +88,8 @@ export interface Harness {
   readonly activated: string[];
   readonly notifications: Notification[];
   readonly saved: string[];
+  /** Account ids whose usage was read, in order. */
+  readonly reads: string[];
   stored(): string | undefined;
   setUsage(accountID: string, result: UsageResult): void;
   setNow(value: number): void;
@@ -103,6 +105,7 @@ export function createHarness(input: HarnessOptions): Harness {
   const activated: string[] = [];
   const notifications: Notification[] = [];
   const saved: string[] = [];
+  const reads: string[] = [];
   let stored: string | undefined = input.stored;
   let now = T0;
 
@@ -135,6 +138,7 @@ export function createHarness(input: HarnessOptions): Harness {
       if (input.usageThrows === true) throw new Error("usage endpoint exploded");
       const account = byKey(credential.key);
       if (account === undefined) return { type: "unavailable" };
+      reads.push(account.id);
       if (input.usageStalls?.includes(account.id) === true) {
         return await new Promise<UsageResult>(() => undefined);
       }
@@ -175,6 +179,7 @@ export function createHarness(input: HarnessOptions): Harness {
     activated,
     notifications,
     saved,
+    reads,
     stored: () => stored,
     setUsage: (accountID, result) => usageResults.set(accountID, result),
     setNow: (value) => {

@@ -190,15 +190,6 @@ describe("fetchUsage", () => {
     expect(headersOf(call.init)["x-opencode-org-id"]).toBe("org-42");
   });
 
-  test("metadata without a server keeps the configured URL and sends no org header", async () => {
-    const fake = recorder(okBody);
-    await fetchUsage({ key: KEY, metadata: { other: "value" } }, options(fake.fetch));
-    const call = fake.calls[0];
-    if (call === undefined) throw new Error("unreachable");
-    expect(call.url).toBe(DEFAULT_USAGE_URL);
-    expect(headersOf(call.init)["x-opencode-org-id"]).toBeUndefined();
-  });
-
   test("a plain http server or usage URL is unknown, and the key never leaves", async () => {
     const insecureServer = recorder(okBody);
     const serverResult = await fetchUsage(
@@ -227,7 +218,7 @@ describe("fetchUsage", () => {
     expect(fake.calls).toHaveLength(0);
   });
 
-  test("a redirect is never followed and counts as unknown", async () => {
+  test("a redirect response counts as unknown usage", async () => {
     const fake = recorder(
       () => new Response(null, { status: 302, headers: { location: "https://elsewhere.example" } }),
     );

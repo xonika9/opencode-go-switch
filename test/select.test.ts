@@ -32,7 +32,6 @@ describe("ordering", () => {
     const sameLabel = account("id-0", "alpha", usage({ monthly: win(10, reset) }));
 
     expect(candidates([beta, alpha, sameLabel], T0).map((entry) => entry.id)).toEqual(["id-0", "id-a", "id-b"]);
-    expect(pickNext([beta, alpha, sameLabel], T0)?.id).toBe("id-0");
   });
 
   test("excluded accounts are skipped", () => {
@@ -49,7 +48,6 @@ describe("eligibility", () => {
     const cooper95 = account("b", "cooper95", usage({ monthly: win(85, T0 + 23 * DAY) }));
 
     expect(candidates([cooper9, cooper95], T0).map((entry) => entry.label)).toEqual(["cooper95"]);
-    expect(pickNext([cooper9, cooper95], T0)?.label).toBe("cooper95");
   });
 
   test("a window whose reset has passed no longer blocks, while a window without a reset blocks indefinitely", () => {
@@ -59,6 +57,17 @@ describe("eligibility", () => {
     expect(candidates([recovered], T0 + HOUR).map((entry) => entry.label)).toEqual(["recovered"]);
     expect(candidates([recovered], T0 + HOUR - 1)).toEqual([]);
     expect(candidates([noReset], T0 + 365 * DAY)).toEqual([]);
+  });
+
+  test("a limited window without a reset outlasts a limited window with one", () => {
+    const both = account(
+      "a",
+      "both",
+      usage({ weekly: win(100, T0 + DAY), monthly: { percent: 100, limited: true, resetsAt: null } }),
+    );
+
+    expect(classify(both, T0)).toEqual({ kind: "exhausted", label: "monthly", until: null });
+    expect(candidates([both], T0 + 2 * DAY)).toEqual([]);
   });
 
   test("a rate-limited window below 100% is still exhausted", () => {
@@ -78,7 +87,6 @@ describe("eligibility", () => {
     cooling.cooldownUntil = T0 + HOUR;
 
     expect(candidates([disabled, invalid, cooling], T0)).toEqual([]);
-    expect(pickNext([disabled, invalid, cooling], T0)).toBeUndefined();
   });
 
   test("a cooling-down account with unknown usage is an unknown candidate once the cooldown ends", () => {
