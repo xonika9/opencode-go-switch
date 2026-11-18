@@ -27,6 +27,7 @@ This repository is the public source of an OpenCode V2 plugin that switches betw
 
 - Tests use a fake `fetch` and a fake plugin context. No real keys, no real network.
 - A change to selection or switching needs a test for the choice that was made and for the account that was not chosen.
+- For a live `opencode run` with test-only plugin options, set `OPENCODE_CONFIG_DIR` to an empty directory together with `OPENCODE_CONFIG_CONTENT`. `OPENCODE_CONFIG_CONTENT` alone layers on top of the user's config, so a plugin listed in both loads twice and every switch is handled twice. Rebuild `dist` first; a `file://` entry loads the compiled package.
 
 ## Documentation
 
