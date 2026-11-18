@@ -1,10 +1,21 @@
 import { classify, WINDOWS } from "./select.ts";
+import type { Classification } from "./select.ts";
 import type { Account } from "./types.ts";
 
+/** The most recent switch, kept apart from the current reason so a status still explains it later. */
+export interface LastSwitch {
+  readonly from: string | null;
+  readonly to: string;
+  readonly cause: string;
+  readonly at: number;
+}
+
 export interface StatusInput {
+  readonly version: string;
   readonly accounts: readonly Account[];
   readonly currentID: string | null;
   readonly reason: string;
+  readonly lastSwitch: LastSwitch | null;
   readonly now: number;
 }
 
@@ -29,8 +40,24 @@ export function formatWhen(until: number | null, now: number): string {
   return `${isoDate(until)} (${relativeTime(until, now)})`;
 }
 
-function describe(account: Account, now: number): string {
-  const state = classify(account, now);
+/** A full instant, for blockers measured in minutes rather than days. */
+export function formatMoment(until: number, now: number): string {
+  return `${new Date(until).toISOString()} (${relativeTime(until, now)})`;
+}
+
+/** How long ago something happened, for the last switch line. */
+export function formatAgo(at: number, now: number): string {
+  const delta = now - at;
+  if (delta < 60_000) return "just now";
+  const minutes = Math.round(delta / 60_000);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+/** What keeps an account out, or how it stands, in the words the tool prints. */
+export function describeState(state: Classification, now: number): string {
   switch (state.kind) {
     case "eligible":
       return "eligible";
@@ -41,19 +68,17 @@ function describe(account: Account, now: number): string {
     case "invalid-key":
       return "invalid key";
     case "exhausted":
-      return `exhausted: ${state.label} limit until ${formatWhen(state.until, now)}`;
+      return `exhausted: ${state.label} until ${formatWhen(state.until, now)}`;
     case "cooldown":
-      return `cooling down: ${state.label} until ${formatWhen(state.until, now)}`;
+      return `cooling down until ${formatMoment(state.until, now)}`;
   }
 }
 
-function stateText(account: Account, now: number, current: boolean): string {
-  if (current) {
-    const state = classify(account, now);
-    if (state.kind === "eligible" || state.kind === "unknown") return "current";
-    return `current, ${describe(account, now)}`;
-  }
-  return describe(account, now);
+/** One decimal only where whole numbers would hide that a window is nearly full. */
+function percentText(percent: number): string {
+  const rounded = Math.round(percent * 10) / 10;
+  if (rounded >= 99 && rounded < 100) return `${rounded.toFixed(1)}%`;
+  return `${Math.round(rounded)}%`;
 }
 
 function usageLine(account: Account): string {
@@ -61,7 +86,7 @@ function usageLine(account: Account): string {
   if (usage === null) {
     return WINDOWS.map((spec) => `${spec.label} unknown`).join(" · ");
   }
-  return WINDOWS.map((spec) => `${spec.label} ${Math.round(usage[spec.key].percent)}%`).join(" · ");
+  return WINDOWS.map((spec) => `${spec.label} ${percentText(usage[spec.key].percent)}`).join(" · ");
 }
 
 function resetLine(account: Account, now: number): string {
@@ -70,11 +95,21 @@ function resetLine(account: Account, now: number): string {
   return `monthly resets ${formatWhen(reset, now)}`;
 }
 
+function lastSwitchLine(last: LastSwitch | null, now: number): string {
+  if (last === null) return "last switch: none";
+  const from = last.from ?? "none";
+  return `last switch: ${from} → ${last.to}, ${last.cause}, ${new Date(last.at).toISOString()} (${formatAgo(last.at, now)})`;
+}
+
 /** Plain text for the `go_accounts` tool. Never contains credential material. */
 export function formatStatus(input: StatusInput): string {
   const current = input.accounts.find((account) => account.id === input.currentID);
-  const lines: string[] = [`OpenCode Go accounts (${input.accounts.length} connected)`];
-  lines.push(`current: ${current === undefined ? "none" : `${current.label} - ${input.reason}`}`);
+  const lines: string[] = [
+    `Go Switch ${input.version}`,
+    `OpenCode Go accounts (${input.accounts.length} connected)`,
+    `current: ${current === undefined ? "none" : `${current.label} - ${input.reason}`}`,
+    lastSwitchLine(input.lastSwitch, input.now),
+  ];
 
   if (input.accounts.length === 0) {
     lines.push("", "No OpenCode Go keys are connected. Add one under Integrations in OpenCode settings.");
@@ -83,7 +118,8 @@ export function formatStatus(input: StatusInput): string {
 
   for (const account of input.accounts) {
     const isCurrent = account.id === input.currentID;
-    lines.push("", `${account.label} - ${stateText(account, input.now, isCurrent)}`);
+    const state = describeState(classify(account, input.now), input.now);
+    lines.push("", `${account.label}${isCurrent ? " (current)" : ""} - ${state}`);
     lines.push(`  ${usageLine(account)}`);
     lines.push(`  ${resetLine(account, input.now)}`);
   }

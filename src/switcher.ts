@@ -1,5 +1,7 @@
 import { causeOf, classify, exhaustedWindow, hasKnownHeadroom, pickNext, usableAsCurrent } from "./select.ts";
-import { formatStatus } from "./status.ts";
+import type { Block } from "./select.ts";
+import { formatMoment, formatStatus, formatWhen } from "./status.ts";
+import type { LastSwitch } from "./status.ts";
 import { createAccount } from "./types.ts";
 import type { Account, AccountInfo } from "./types.ts";
 import type { UsageCredential, UsageResult } from "./usage.ts";
@@ -8,7 +10,9 @@ import { retryAfterMs } from "./usage.ts";
 export interface SwitcherOptions {
   readonly pollIntervalMs: number;
   readonly fallbackCooldownMs: number;
-  readonly toast: boolean;
+  /** How long the first request waits for the startup usage poll. */
+  readonly usageTimeoutMs: number;
+  readonly version: string;
 }
 
 export interface SwitcherDeps {
@@ -34,6 +38,16 @@ export interface HttpResponseInput extends HttpRequestInput {
   response: Response;
 }
 
+/** What OpenCode may decide after a failed attempt. */
+export type RetryDecision = { readonly retry: false } | { readonly retry: true; readonly delay: number };
+
+/** The part of OpenCode's provider retry hook this plugin reads and edits. */
+export interface RetryInput {
+  readonly error: { readonly status?: number; readonly retryAfterMs?: number };
+  readonly attempt: number;
+  decision: RetryDecision;
+}
+
 interface RequestState {
   accountID: string;
   tried: Set<string>;
@@ -41,13 +55,28 @@ interface RequestState {
   template: Request | undefined;
 }
 
-const STICKY = "sticky: still has headroom";
+/** A usage read triggered by a limit must not hang the request. */
+const LIMIT_USAGE_BUDGET_MS = 2_000;
 
-function withKey(request: Request, key: string): Request {
+const STICKY = "sticky: still has headroom";
+const STICKY_UNKNOWN = "sticky: usage unknown";
+const STARTUP = "startup: earliest monthly reset";
+const EXPLICIT = "explicitly selected";
+const RESTORED = "restored from storage";
+
+/**
+ * Puts the key on the request in whichever header the caller already uses, so the provider keeps
+ * accepting it. A request with neither header gets an authorization header.
+ */
+function withKey(request: Request, key: string, redirect?: RequestRedirect): Request {
   const headers = new Headers(request.headers);
-  if (headers.has("x-api-key")) headers.set("x-api-key", key);
-  else headers.set("authorization", `Bearer ${key}`);
-  return new Request(request, { headers });
+  const usesApiKey = headers.has("x-api-key");
+  const usesAuthorization = headers.has("authorization");
+  if (usesApiKey) headers.set("x-api-key", key);
+  if (usesAuthorization) headers.set("authorization", `Bearer ${key}`);
+  if (!usesApiKey && !usesAuthorization) headers.set("authorization", `Bearer ${key}`);
+  const init: RequestInit = redirect === undefined ? { headers } : { headers, redirect };
+  return new Request(request, init);
 }
 
 function cloneRequest(request: Request): Request | undefined {
@@ -59,16 +88,19 @@ function cloneRequest(request: Request): Request | undefined {
 }
 
 /**
- * Owns the account list, the current account, usage knowledge, and the two request hooks.
+ * Owns the account list, the current account, usage knowledge, and the request hooks.
  * All I/O arrives through `deps`, so tests drive it without a real OpenCode or network.
  */
 export function createSwitcher(deps: SwitcherDeps) {
   let accounts: Account[] = [];
   let current: string | null = null;
   let reason = "not chosen yet";
+  let lastSwitch: LastSwitch | null = null;
   let ready: Promise<void> | null = null;
+  let startupPoll: Promise<void> | null = null;
   let timer: ReturnType<typeof setInterval> | null = null;
   let polling: Promise<void> | null = null;
+  let deciding: Promise<unknown> = Promise.resolve();
   const requests = new WeakMap<Request, RequestState>();
 
   const find = (id: string | null): Account | undefined =>
@@ -143,20 +175,47 @@ export function createSwitcher(deps: SwitcherDeps) {
     } catch {
       return;
     }
+    startupPoll = refresh();
     try {
       const stored = await deps.loadCurrent();
       if (stored !== undefined && accounts.some((account) => account.id === stored)) {
         current = stored;
-        reason = "restored from storage";
+        reason = RESTORED;
       }
     } catch {
-      return;
+      // Without a stored id the first request picks by the rule.
     }
   }
 
+  /** Waits for the startup poll, but never longer than the usage timeout. */
+  function awaitStartupUsage(): Promise<void> {
+    const pending = startupPoll ?? refresh();
+    return new Promise((resolve) => {
+      let settled = false;
+      let limit: ReturnType<typeof setTimeout> | undefined;
+      const finish = (): void => {
+        if (settled) return;
+        settled = true;
+        if (limit !== undefined) clearTimeout(limit);
+        resolve();
+      };
+      limit = setTimeout(finish, Math.max(0, deps.options.usageTimeoutMs));
+      pending.then(finish, finish);
+    });
+  }
+
+  /** Runs a decision alone, so two failures cannot both switch and both announce it. */
+  function serialize<T>(work: () => Promise<T>): Promise<T> {
+    const run = deciding.then(work, work);
+    deciding = run.catch(() => undefined);
+    return run;
+  }
+
   async function switchTo(account: Account, why: string, cause: string): Promise<void> {
+    const previous = currentAccount()?.label ?? null;
     current = account.id;
     reason = why;
+    lastSwitch = { from: previous, to: account.label, cause, at: deps.now() };
     try {
       await deps.saveCurrent(account.id);
     } catch {
@@ -167,12 +226,10 @@ export function createSwitcher(deps: SwitcherDeps) {
     } catch {
       // The request must go through even when activation fails.
     }
-    if (deps.options.toast) {
-      try {
-        await deps.notify({ label: account.label, reason: cause });
-      } catch {
-        // Notifications are best effort.
-      }
+    try {
+      await deps.notify({ label: account.label, reason: cause });
+    } catch {
+      // Notifications are best effort.
     }
   }
 
@@ -181,9 +238,23 @@ export function createSwitcher(deps: SwitcherDeps) {
     if (account !== undefined) account.invalidKey = true;
   }
 
+  /** Reads usage without letting a slow endpoint hold the request for longer than the budget. */
+  async function readUsageBounded(credential: UsageCredential): Promise<UsageResult> {
+    const read = deps.readUsage(credential).catch((): UsageResult => ({ type: "unavailable" }));
+    let limit: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<UsageResult>((resolve) => {
+      limit = setTimeout(() => resolve({ type: "unavailable" }), LIMIT_USAGE_BUDGET_MS);
+    });
+    try {
+      return await Promise.race([read, deadline]);
+    } finally {
+      if (limit !== undefined) clearTimeout(limit);
+    }
+  }
+
   /**
-   * Applies a 429/402 to one account. Returns false when refreshed usage says the account still has
-   * headroom (so the limit was not ours and the response should stand).
+   * Applies a 429/402 to one account. Returns false when a fresh usage read says the account still
+   * has headroom in every window (so the limit was not ours and the response should stand).
    */
   async function noteLimit(id: string | null, response: Response): Promise<boolean> {
     const account = find(id);
@@ -199,12 +270,7 @@ export function createSwitcher(deps: SwitcherDeps) {
       return true;
     }
     const now = deps.now();
-    let result: UsageResult;
-    try {
-      result = await deps.readUsage(credential);
-    } catch {
-      result = { type: "unavailable" };
-    }
+    const result = await readUsageBounded(credential);
     if (result.type === "usage") {
       account.usage = result.usage;
       account.checkedAt = now;
@@ -224,6 +290,60 @@ export function createSwitcher(deps: SwitcherDeps) {
     account.blockedLabel = "limit";
     void refresh();
     return true;
+  }
+
+  async function refreshIfStale(): Promise<void> {
+    const now = deps.now();
+    const stale = accounts.some(
+      (account) => account.checkedAt === 0 || now - account.checkedAt >= deps.options.pollIntervalMs,
+    );
+    if (stale) await refresh();
+  }
+
+  function statusText(): string {
+    return formatStatus({
+      version: deps.options.version,
+      accounts,
+      currentID: current,
+      reason,
+      lastSwitch,
+      now: deps.now(),
+    });
+  }
+
+  /** Makes the named account current, or returns the refusal to print above the status. */
+  async function selectByLabel(wanted: string): Promise<string | null> {
+    const lower = wanted.toLowerCase();
+    const matches = accounts.filter((account) => account.label.toLowerCase() === lower);
+    if (matches.length === 0) {
+      const labels = accounts.map((account) => account.label).join(", ");
+      return `Refused: no connected account is labelled "${wanted}". Connected accounts: ${labels === "" ? "none" : labels}.`;
+    }
+    if (matches.length > 1) {
+      const labels = matches.map((account) => account.label).join(", ");
+      return `Refused: ${matches.length} connected accounts are labelled "${wanted}" (${labels}); rename one of them before selecting it.`;
+    }
+    const target = matches[0]!;
+    const now = deps.now();
+    const state = classify(target, now);
+    if (state.kind !== "eligible" && state.kind !== "unknown") {
+      return `Refused: "${target.label}" ${refusalReason(state, now)}.`;
+    }
+    if (target.id !== current) await switchTo(target, EXPLICIT, EXPLICIT);
+    return null;
+  }
+
+  function refusalReason(state: Block, now: number): string {
+    switch (state.kind) {
+      case "disabled":
+        return "is disabled";
+      case "invalid-key":
+        return "has an invalid key";
+      case "exhausted":
+        return `is exhausted: ${state.label} until ${formatWhen(state.until, now)}`;
+      case "cooldown":
+        return `is cooling down until ${formatMoment(state.until, now)}`;
+    }
   }
 
   const api = {
@@ -264,11 +384,7 @@ export function createSwitcher(deps: SwitcherDeps) {
     /** Text for the `go_accounts` tool; with `label`, makes that account current first. */
     async status(label?: string): Promise<string> {
       await api.init();
-      const now = deps.now();
-      const stale = accounts.some(
-        (account) => account.checkedAt === 0 || now - account.checkedAt >= deps.options.pollIntervalMs,
-      );
-      if (stale) await refresh();
+      await refreshIfStale();
       try {
         await syncAccounts();
       } catch {
@@ -276,40 +392,32 @@ export function createSwitcher(deps: SwitcherDeps) {
       }
 
       const wanted = label?.trim();
-      if (wanted !== undefined && wanted !== "") {
-        const target =
-          accounts.find((account) => account.label === wanted) ??
-          accounts.find((account) => account.label.toLowerCase() === wanted.toLowerCase());
-        if (target === undefined) {
-          const labels = accounts.map((account) => account.label).join(", ");
-          throw new Error(
-            `Unknown account "${wanted}". Connected accounts: ${labels === "" ? "none" : labels}.`,
-          );
-        }
-        if (target.id !== current) await switchTo(target, "explicitly selected", "explicitly selected");
-      }
-
-      return formatStatus({ accounts, currentID: current, reason, now: deps.now() });
+      const refusal = wanted === undefined || wanted === "" ? null : await selectByLabel(wanted);
+      const text = statusText();
+      return refusal === null ? text : `${refusal}\n\n${text}`;
     },
 
     /** Puts the current account's key on the request, switching first when it is known to be blocked. */
     async onRequest(input: HttpRequestInput): Promise<void> {
       try {
         await api.init();
-        const now = deps.now();
         let account = currentAccount();
 
-        if (account === undefined || !usableAsCurrent(account, now)) {
+        if (account === undefined) {
+          await awaitStartupUsage();
+          const picked = pickNext(accounts, deps.now());
+          if (picked === undefined) return;
+          await switchTo(picked, STARTUP, STARTUP);
+          account = picked;
+        } else if (!usableAsCurrent(account, deps.now())) {
+          const now = deps.now();
           const next = pickNext(accounts, now);
           if (next === undefined) return;
-          if (next.id !== account?.id) {
-            const cause = account === undefined ? "startup" : causeOf(account, classify(account, now));
-            const why = account === undefined ? "startup: earliest monthly reset" : `switched: ${cause}`;
-            await switchTo(next, why, cause);
-          }
+          const cause = causeOf(account, classify(account, now));
+          await switchTo(next, `switched: ${cause}`, cause);
           account = next;
         } else {
-          reason = hasKnownHeadroom(account, now) ? STICKY : "sticky: usage unknown";
+          reason = hasKnownHeadroom(account, deps.now()) ? STICKY : STICKY_UNKNOWN;
         }
 
         const credential = await deps.resolveKey(account.id).catch(() => undefined);
@@ -330,41 +438,53 @@ export function createSwitcher(deps: SwitcherDeps) {
     },
 
     /**
-     * Retries a limit or auth failure with the next account inside the same hook call. Returns the
-     * first response untouched when every account has been tried.
+     * Retries a limit or auth failure with the next account inside the same hook call. The first
+     * response stands when no account is left to try.
      */
     async onResponse(input: HttpResponseInput): Promise<void> {
       const first = input.response;
       try {
         await api.init();
         const state = requests.get(input.request);
-        const base = state?.template ?? input.request;
-        const tried = new Set(state?.tried ?? []);
+        const base = state?.template ?? cloneRequest(input.request);
+        if (base === undefined) return;
+        const tried = new Set<string>(state?.tried ?? []);
         let accountID = state?.accountID ?? current;
         let response = first;
 
         for (let step = 0; step <= accounts.length; step++) {
-          if (response.status === 401 || response.status === 403) {
+          if (response.status === 403) return;
+          if (response.status === 401) {
             markInvalid(accountID);
           } else if (response.status === 429 || response.status === 402) {
-            if (!(await noteLimit(accountID, response))) return;
+            if (!(await noteLimit(accountID, response))) {
+              if (response !== first) input.response = response;
+              return;
+            }
           } else {
             if (response !== first) input.response = response;
             return;
           }
 
-          const now = deps.now();
-          const active = currentAccount();
-          let target: Account | undefined;
-          if (active !== undefined && active.id !== accountID) {
-            target = active;
-          } else {
-            target = pickNext(accounts, now, tried);
-            if (target === undefined) return;
+          const target = await serialize(async () => {
+            const now = deps.now();
+            const active = currentAccount();
+            if (
+              active !== undefined &&
+              active.id !== accountID &&
+              !tried.has(active.id) &&
+              usableAsCurrent(active, now)
+            ) {
+              return active;
+            }
+            const next = pickNext(accounts, now, tried);
+            if (next === undefined) return undefined;
             const failed = find(accountID);
             const cause = failed === undefined ? "limit" : causeOf(failed, classify(failed, now));
-            await switchTo(target, `switched: ${cause}`, cause);
-          }
+            await switchTo(next, `switched: ${cause}`, cause);
+            return next;
+          });
+          if (target === undefined) return;
           if (tried.has(target.id)) return;
           tried.add(target.id);
 
@@ -375,11 +495,32 @@ export function createSwitcher(deps: SwitcherDeps) {
           }
           const template = cloneRequest(base);
           if (template === undefined) return;
-          response = await deps.fetch(withKey(template, credential.key));
+          response = await deps.fetch(withKey(template, credential.key, "manual"));
           accountID = target.id;
         }
       } catch {
         // Leave the original response in place.
+      }
+    },
+
+    /**
+     * Tells OpenCode not to retry a limit when no account could carry the request anyway. A merely
+     * benched account, or one whose usage nobody has read, keeps OpenCode's own retry alive.
+     */
+    async onRetry(input: RetryInput): Promise<void> {
+      try {
+        await api.init();
+        const status = input.error.status;
+        if (status !== 429 && status !== 402) return;
+        if (accounts.length === 0) return;
+        const now = deps.now();
+        const blocked = accounts.every((account) => {
+          const kind = classify(account, now).kind;
+          return kind === "exhausted" || kind === "invalid-key" || kind === "disabled";
+        });
+        if (blocked) input.decision = { retry: false };
+      } catch {
+        // A hook must never fail the request.
       }
     },
   };

@@ -25,9 +25,10 @@ export function usage(input: {
   };
 }
 
-export function jsonRequest(header: "x-api-key" | "authorization" = "authorization"): Request {
+export function jsonRequest(header: "x-api-key" | "authorization" | "both" = "authorization"): Request {
   const headers: Record<string, string> = { "content-type": "application/json" };
-  headers[header] = header === "authorization" ? "Bearer opencode-managed" : "opencode-managed";
+  if (header === "authorization" || header === "both") headers["authorization"] = "Bearer opencode-managed";
+  if (header === "x-api-key" || header === "both") headers["x-api-key"] = "opencode-managed";
   return new Request("https://opencode.ai/zen/go/v1/messages", {
     method: "POST",
     headers,
@@ -55,6 +56,12 @@ export interface SentRequest {
   readonly method: string;
   readonly key: string | null;
   readonly body: string;
+  readonly redirect: RequestRedirect;
+}
+
+export interface Notification {
+  readonly label: string;
+  readonly reason: string;
 }
 
 export interface HarnessOptions {
@@ -64,20 +71,28 @@ export interface HarnessOptions {
   readonly options?: Partial<SwitcherOptions>;
   readonly activateFails?: boolean;
   readonly usageThrows?: boolean;
+  /** Accounts whose usage read never settles while the switcher runs. */
+  readonly usageStalls?: readonly string[];
+  /** Per-account delay before a usage read answers, in milliseconds. */
+  readonly usageDelayMs?: Readonly<Record<string, number>>;
   readonly unresolvable?: readonly string[];
-  readonly respond?: (request: Request) => Response;
+  readonly respond?: (request: Request, index: number) => Response | Promise<Response>;
 }
 
 export interface Harness {
   readonly switcher: Switcher;
   readonly sent: SentRequest[];
   readonly activated: string[];
-  readonly toasts: Array<{ readonly label: string; readonly reason: string }>;
+  readonly notifications: Notification[];
   readonly saved: string[];
+  /** Activations the fake host performs on its own, as a person would in a UI. */
+  readonly hostActivated: string[];
   stored(): string | undefined;
   setUsage(accountID: string, result: UsageResult): void;
   setNow(value: number): void;
   now(): number;
+  addAccount(account: FakeAccount): void;
+  manualActivate(accountID: string): void;
   accountInfos(): AccountInfo[];
 }
 
@@ -87,7 +102,8 @@ export function createHarness(input: HarnessOptions): Harness {
   const usageResults = new Map<string, UsageResult>(Object.entries(input.usage ?? {}));
   const sent: SentRequest[] = [];
   const activated: string[] = [];
-  const toasts: Array<{ label: string; reason: string }> = [];
+  const hostActivated: string[] = [];
+  const notifications: Notification[] = [];
   const saved: string[] = [];
   let stored: string | undefined = input.stored;
   let now = T0;
@@ -99,8 +115,9 @@ export function createHarness(input: HarnessOptions): Harness {
     now: () => now,
     options: {
       pollIntervalMs: 60_000,
-      fallbackCooldownMs: 900_000,
-      toast: true,
+      fallbackCooldownMs: 15 * MINUTE,
+      usageTimeoutMs: 100,
+      version: "1.0.0",
       ...input.options,
     },
     loadAccounts: async () =>
@@ -118,6 +135,11 @@ export function createHarness(input: HarnessOptions): Harness {
       if (input.usageThrows === true) throw new Error("usage endpoint exploded");
       const account = byKey(credential.key);
       if (account === undefined) return { type: "unavailable" };
+      if (input.usageStalls?.includes(account.id) === true) {
+        return await new Promise<UsageResult>(() => undefined);
+      }
+      const delay = input.usageDelayMs?.[account.id] ?? 0;
+      if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
       return usageResults.get(account.id) ?? { type: "unavailable" };
     },
     activate: async (accountID) => {
@@ -130,17 +152,19 @@ export function createHarness(input: HarnessOptions): Harness {
       saved.push(accountID);
     },
     notify: async (event) => {
-      toasts.push({ label: event.label, reason: event.reason });
+      notifications.push({ label: event.label, reason: event.reason });
     },
     fetch: async (request) => {
+      const index = sent.length;
       const copy = request.clone();
       sent.push({
         url: request.url,
         method: request.method,
         key: keyOf(request.headers),
         body: await copy.text(),
+        redirect: request.redirect,
       });
-      return input.respond?.(request) ?? new Response("ok", { status: 200 });
+      return (await input.respond?.(request, index)) ?? new Response("ok", { status: 200 });
     },
   });
 
@@ -148,14 +172,22 @@ export function createHarness(input: HarnessOptions): Harness {
     switcher,
     sent,
     activated,
-    toasts,
+    notifications,
     saved,
+    hostActivated,
     stored: () => stored,
     setUsage: (accountID, result) => usageResults.set(accountID, result),
     setNow: (value) => {
       now = value;
     },
     now: () => now,
+    addAccount: (account) => {
+      accounts.push({ ...account });
+      keys.set(account.id, account.key);
+    },
+    manualActivate: (accountID) => {
+      hostActivated.push(accountID);
+    },
     accountInfos: () =>
       accounts.map((account) => ({
         id: account.id,

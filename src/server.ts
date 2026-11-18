@@ -18,7 +18,6 @@ const toolInput = Schema.Struct({ select: Schema.optional(Schema.String) });
 
 interface Options extends SwitcherOptions {
   readonly usageUrl: string;
-  readonly usageTimeoutMs: number;
   readonly integrationID: string;
   readonly providerID: string;
 }
@@ -41,7 +40,7 @@ export function readOptions(raw: Readonly<Record<string, unknown>>): Options {
     usageUrl: stringOption(raw.usageUrl, DEFAULT_USAGE_URL),
     integrationID: stringOption(raw.integrationID, "opencode-go"),
     providerID: stringOption(raw.providerID, "opencode-go"),
-    toast: raw.toast !== false,
+    version: "dev",
   };
 }
 
@@ -111,6 +110,13 @@ export default Plugin.define({
         { providerID: options.providerID },
       );
       disposers.push(() => response.dispose());
+
+      const retry = await ctx.session.hook(
+        "retry",
+        (input) => switcher.onRetry(input),
+        { providerID: options.providerID },
+      );
+      disposers.push(() => retry.dispose());
 
       const tool = await ctx.tool.transform((editor) => {
         editor.add({

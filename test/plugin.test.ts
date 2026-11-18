@@ -150,11 +150,13 @@ describe("server plugin wiring", () => {
     expect(plugin.id).toBe("opencode-go-autoswitch");
     const cleanup = await plugin.setup(fake.ctx as never);
 
-    expect(fake.hooks.map((hook) => hook.name)).toEqual(["http.request", "http.response"]);
+    expect(fake.hooks.map((hook) => hook.name)).toEqual(["http.request", "http.response", "retry"]);
     expect(fake.hooks[0]?.options).toEqual({ providerID: "opencode-go" });
     expect(fake.hooks[1]?.options).toEqual({ providerID: "opencode-go" });
+    expect(fake.hooks[2]?.options).toEqual({ providerID: "opencode-go" });
 
     const text = (await fake.tool().execute({}, {})).content ?? "";
+    expect(text.split("\n")[0]).toBe("Go Switch dev");
     expect(text).toContain("cooper9");
     expect(text).toContain("cooper95");
     expect(text).not.toContain("fake-key");
@@ -162,7 +164,7 @@ describe("server plugin wiring", () => {
     expect(text).not.toContain("OPENCODE_GO_KEY");
 
     await cleanup?.();
-    expect(fake.disposed).toEqual(["http.request", "http.response", "tool", "rpc"]);
+    expect(fake.disposed).toEqual(["http.request", "http.response", "retry", "tool", "rpc"]);
   });
 
   test("puts a resolved key on the outgoing request", async () => {
@@ -203,7 +205,7 @@ describe("server plugin wiring", () => {
     await cleanup?.();
   });
 
-  test("plugin options override the endpoint and turn toasts off", async () => {
+  test("plugin options override the endpoint; a leftover toast option does not silence switches", async () => {
     let requested: string | undefined;
     globalThis.fetch = (async (url: string) => {
       requested = url;
@@ -216,7 +218,7 @@ describe("server plugin wiring", () => {
     await fake.tool().execute({ select: "cooper9" }, {});
     expect(requested).toBe("https://example.test/usage");
     expect(fake.activated).toEqual(["c9"]);
-    expect(fake.events).toEqual([]);
+    expect(fake.events).toEqual([{ name: "switched", data: { label: "cooper9", reason: "explicitly selected" } }]);
 
     await cleanup?.();
   });
