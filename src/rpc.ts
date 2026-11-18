@@ -1,6 +1,6 @@
 import { Rpc } from "@opencode/plugin/rpc";
 
-export const RPC_ID = "opencode-go-autoswitch";
+export const RPC_ID = "opencode-go-switch";
 
 /**
  * Server-to-TUI notification contract. Events carry only the account label and the reason for the

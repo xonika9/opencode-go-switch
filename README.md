@@ -1,14 +1,14 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/xonika9/opencode-go-autoswitch/main/assets/opencode-go-autoswitch-hero.jpg" alt="Go Switch: Limits hit? Keep coding." width="100%">
+  <img src="https://raw.githubusercontent.com/xonika9/opencode-go-switch/main/assets/opencode-go-switch-hero.jpg" alt="Go Switch: Limits hit? Keep coding." width="100%">
 </p>
 
 # Go Switch
 
-`opencode-go-autoswitch` keeps an OpenCode Go session running: it stays on the account that still has headroom and moves to the next account inside the same request when a limit hits.
+`opencode-go-switch` keeps an OpenCode Go session running: it stays on the account that still has headroom and moves to the next account inside the same request when a limit hits.
 
-[![CI workflow status](https://github.com/xonika9/opencode-go-autoswitch/actions/workflows/ci.yml/badge.svg)](https://github.com/xonika9/opencode-go-autoswitch/actions/workflows/ci.yml)
-[![npm version](https://img.shields.io/npm/v/opencode-go-autoswitch)](https://www.npmjs.com/package/opencode-go-autoswitch)
-[![License](https://img.shields.io/npm/l/opencode-go-autoswitch)](LICENSE)
+[![CI workflow status](https://github.com/xonika9/opencode-go-switch/actions/workflows/ci.yml/badge.svg)](https://github.com/xonika9/opencode-go-switch/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/opencode-go-switch)](https://www.npmjs.com/package/opencode-go-switch)
+[![License](https://img.shields.io/npm/l/opencode-go-switch)](LICENSE)
 
 ## Why
 
@@ -68,7 +68,7 @@ Add the package name to the `plugins` list in `opencode.jsonc`:
 ```jsonc
 {
   "plugins": [
-    { "package": "opencode-go-autoswitch" }
+    { "package": "opencode-go-switch" }
   ]
 }
 ```
@@ -87,7 +87,7 @@ Then point the configuration at the clone:
 ```jsonc
 {
   "plugins": [
-    { "package": "file:///path/to/opencode-go-autoswitch" }
+    { "package": "file:///path/to/opencode-go-switch" }
   ]
 }
 ```
@@ -98,7 +98,7 @@ Options go in the same entry:
 {
   "plugins": [
     {
-      "package": "opencode-go-autoswitch",
+      "package": "opencode-go-switch",
       "options": {
         "pollIntervalMs": 600000,
         "fallbackCooldownMs": 900000

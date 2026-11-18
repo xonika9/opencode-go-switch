@@ -1,17 +1,17 @@
 {
-  "name": "opencode-go-autoswitch",
+  "name": "opencode-go-switch",
   "version": "1.0.0",
   "description": "Go Switch: an OpenCode plugin that keeps you on a working OpenCode Go subscription and switches accounts automatically when a quota runs out.",
   "type": "module",
   "license": "MIT",
   "author": "xonika9",
-  "homepage": "https://github.com/xonika9/opencode-go-autoswitch#readme",
+  "homepage": "https://github.com/xonika9/opencode-go-switch#readme",
   "bugs": {
-    "url": "https://github.com/xonika9/opencode-go-autoswitch/issues"
+    "url": "https://github.com/xonika9/opencode-go-switch/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/xonika9/opencode-go-autoswitch.git"
+    "url": "git+https://github.com/xonika9/opencode-go-switch.git"
   },
   "keywords": [
     "opencode",

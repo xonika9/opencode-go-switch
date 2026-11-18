@@ -4,7 +4,7 @@
 
 Do not open a public issue for vulnerabilities, leaked credentials, or reports that contain private data.
 
-Use GitHub private vulnerability reporting through the Security tab of [xonika9/opencode-go-autoswitch](https://github.com/xonika9/opencode-go-autoswitch/security/advisories/new). Include:
+Use GitHub private vulnerability reporting through the Security tab of [xonika9/opencode-go-switch](https://github.com/xonika9/opencode-go-switch/security/advisories/new). Include:
 
 - the affected plugin version and the OpenCode version you run;
 - the smallest reproducible example;

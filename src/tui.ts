@@ -2,7 +2,7 @@ import { Plugin } from "@opencode/plugin/tui";
 import { Contract } from "./rpc.ts";
 
 export default Plugin.define({
-  id: "opencode-go-autoswitch-tui",
+  id: "opencode-go-switch-tui",
   setup(context) {
     const rpc = context.client.rpc(Contract);
     return rpc.events.on("switched", (event) => {

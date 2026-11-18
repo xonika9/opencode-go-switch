@@ -11,7 +11,7 @@ type Context = Parameters<Parameters<typeof Plugin.define>[0]["setup"]>[0];
 type IntegrationConnection = Awaited<ReturnType<Context["integration"]["get"]>>["data"]["connections"][number];
 type Disposable = { dispose: () => Promise<void> | void };
 
-const STORAGE_KEY = "opencode-go-autoswitch.current";
+const STORAGE_KEY = "opencode-go-switch.current";
 const DEFAULT_POLL_INTERVAL_MS = 300_000;
 const DEFAULT_USAGE_TIMEOUT_MS = 5_000;
 const DEFAULT_FALLBACK_COOLDOWN_MS = 900_000;
@@ -69,7 +69,7 @@ export function readOptions(raw: Readonly<Record<string, unknown>>): Options {
 }
 
 export default Plugin.define({
-  id: "opencode-go-autoswitch",
+  id: "opencode-go-switch",
   async setup(ctx) {
     const options = readOptions(ctx.options);
     const connections = new Map<string, IntegrationConnection>();

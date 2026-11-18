@@ -213,7 +213,7 @@ describe("server plugin wiring", () => {
     const fake = fakeContext();
     const plugin = await loadServer();
 
-    expect(plugin.id).toBe("opencode-go-autoswitch");
+    expect(plugin.id).toBe("opencode-go-switch");
     const cleanup = await plugin.setup(fake.ctx as never);
 
     expect(fake.hooks.map((hook) => hook.name)).toEqual(["http.request", "http.response", "retry"]);
@@ -262,7 +262,7 @@ describe("server plugin wiring", () => {
     const text = (await fake.tool().execute({ select: "cooper95" }, {})).content ?? "";
     expect(text).toContain("current: cooper95 - explicitly selected");
     expect(fake.activated).toEqual(["c95"]);
-    expect(fake.storage.get("opencode-go-autoswitch.current")).toBe("c95");
+    expect(fake.storage.get("opencode-go-switch.current")).toBe("c95");
     expect(fake.events).toEqual([{ name: "switched", data: { label: "cooper95", reason: "explicitly selected" } }]);
 
     for (const value of fake.storage.values()) expect(String(value)).not.toContain("fake-key");

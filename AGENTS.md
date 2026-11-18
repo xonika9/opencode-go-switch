@@ -1,4 +1,4 @@
-# opencode-go-autoswitch repository
+# opencode-go-switch repository
 
 This repository is the public source of an OpenCode V2 plugin that switches between OpenCode Go accounts. Work directly on `main`; do not create branches unless the user asks.
 
@@ -31,7 +31,7 @@ This repository is the public source of an OpenCode V2 plugin that switches betw
 ## Documentation
 
 - `README.md` is the English public document. Keep it accurate about current behavior and limitations, and keep it free of fabricated screenshots or numbers.
-- The hero image is `assets/opencode-go-autoswitch-hero.jpg` (2:1), shown at the top of the README with the alt text "Go Switch: Limits hit? Keep coding."
+- The hero image is `assets/opencode-go-switch-hero.jpg` (2:1), shown at the top of the README with the alt text "Go Switch: Limits hit? Keep coding."
 - Update `README.md` and `CHANGELOG.md` (under `Unreleased`) in the same change as any user-visible behavior.
 
 ## Git

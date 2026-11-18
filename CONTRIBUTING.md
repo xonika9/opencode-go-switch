@@ -7,8 +7,8 @@ Thanks for helping make the switch predictable. Focused fixes, reproductions, an
 You need Bun 1.2 or newer. OpenCode itself is not required for development; the tests drive the plugin through a fake host.
 
 ```bash
-git clone https://github.com/xonika9/opencode-go-autoswitch.git
-cd opencode-go-autoswitch
+git clone https://github.com/xonika9/opencode-go-switch.git
+cd opencode-go-switch
 bun install
 bun run check
 bun run build
