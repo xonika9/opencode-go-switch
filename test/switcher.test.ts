@@ -517,7 +517,7 @@ describe("limits inside the response hook", () => {
     expect(await decide(none, 429)).toEqual(untouched);
   });
 
-  test("a limit reads every account's usage again for the next decision", async () => {
+  test("a limit reads the other accounts' usage again for the next decision", async () => {
     const harness = createHarness({
       accounts,
       stored: "c9",
@@ -545,6 +545,7 @@ describe("limits inside the response hook", () => {
     await harness.switcher.start();
     await harness.switcher.refresh();
     const afterStart = harness.reads.length;
+    expect(afterStart).toBeGreaterThan(0);
 
     await new Promise((resolve) => setTimeout(resolve, 30));
 
@@ -1021,6 +1022,8 @@ describe("hook safety", () => {
     const limited = new Response("rate limited", { status: 429 });
     const responseInput = { model: provider, request: requestInput.request, response: limited };
     await fetchFails.switcher.onResponse(responseInput);
+    // The retry was attempted on the next account, and its failure left the original response.
+    expect(fetchFails.activated).toEqual(["c95"]);
     expect(responseInput.response).toBe(limited);
     await fetchFails.switcher.onRetry({
       error: { status: 429 },
