@@ -5,8 +5,17 @@ This repository is the public source of an OpenCode V2 plugin that switches betw
 ## Sources of truth
 
 - `src/select.ts` owns the selection rule: window exhaustion, eligibility, sticky behavior, and the order in which the next account is chosen. Change behavior there, not in the callers.
-- `src/usage.ts` owns usage polling: the endpoint request, timeout, response size cap, and tolerant parsing. An unknown shape must degrade to "usage unknown", never to a guess.
-- `src/server.ts` wires hooks, the tool, notifications, and timers. Keep the wiring thin; behavior belongs in the modules above.
+- `src/usage.ts` owns the usage request and parsing: the endpoint URL and headers, timeout, response size cap, and tolerant parsing. An unknown shape must degrade to "usage unknown", never to a guess.
+- `src/switcher.ts` owns runtime state, polling, switching, and the request, response, and retry hook handlers.
+- `src/status.ts` owns the text the `go_accounts` tool prints. Keep its wording in sync with the states the selection rule can produce.
+- `src/server.ts` is thin wiring: options, hook registration, the tool, the RPC contract, and timers. Behavior belongs in the modules above.
+- `src/rpc.ts` and `src/tui.ts` own the switch notification. They carry only a label and a reason, never key material.
+
+## Commands
+
+- `bun run check` runs the typecheck and the test suite. Run it before reporting work as done.
+- `bun run build` compiles `src` to `dist`, which is what the published package and a locally installed clone load.
+- `bun test` while iterating; `bun run typecheck` alone when only types changed.
 
 ## Keys and privacy
 
@@ -17,13 +26,13 @@ This repository is the public source of an OpenCode V2 plugin that switches betw
 ## Tests
 
 - Tests use a fake `fetch` and a fake plugin context. No real keys, no real network.
-- Run `bun run check` (typecheck plus tests) before reporting work as done. Run `bun test` while iterating.
+- A change to selection or switching needs a test for the choice that was made and for the account that was not chosen.
 
 ## Documentation
 
 - `README.md` is the English public document. Keep it accurate about current behavior and limitations, and keep it free of fabricated screenshots or numbers.
-- The hero image is reserved at `assets/opencode-go-autoswitch-hero.jpg` (2:1). Leave it commented out in the README until the file exists.
-- Record every user-visible change under `Unreleased` in `CHANGELOG.md` in the same task.
+- The hero image is `assets/opencode-go-autoswitch-hero.jpg` (2:1), shown at the top of the README with the alt text "Go Switch: Limits hit? Keep coding."
+- Update `README.md` and `CHANGELOG.md` (under `Unreleased`) in the same change as any user-visible behavior.
 
 ## Git
 

@@ -1,4 +1,4 @@
-## Problem and outcome
+## Summary
 
 <!-- What problem does this solve, and what is observably different? -->
 
@@ -6,14 +6,14 @@
 
 <!-- Selection, in-request retry, usage polling, the go_accounts tool, notifications, or docs. -->
 
-## Validation
+## Tests run
 
-<!-- List exact commands and the scenario you reproduced, including the account state before and after. -->
+<!-- Exact commands and the scenario you reproduced, including the account state before and after. -->
 
-## Public-data checklist
+## Checklist
 
-- [ ] I removed API keys, key fragments, credentials, and personal paths.
+- [ ] `CHANGELOG.md` is updated under `Unreleased` for user-visible changes.
+- [ ] `README.md` is updated if installation, options, the tool, or limitations changed.
+- [ ] No API keys, key fragments, credentials, or personal paths appear in the diff or in pasted output.
 - [ ] Tests use a fake network and a fake plugin context, with no real keys.
-- [ ] I updated `CHANGELOG.md` for user-visible changes.
-- [ ] I updated `README.md` if installation, options, the tool, or limitations changed.
-- [ ] I ran `bun run check`.
+- [ ] `bun run check` passes, and `bun run build` succeeds.

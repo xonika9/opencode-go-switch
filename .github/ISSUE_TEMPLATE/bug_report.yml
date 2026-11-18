@@ -6,21 +6,31 @@ body:
   - type: markdown
     attributes:
       value: >-
-        Remove API keys, key fragments, credentials, private account identifiers, and personal paths.
-        Use private vulnerability reporting for sensitive security findings.
-  - type: input
-    id: plugin-version
-    attributes:
-      label: Plugin version
-      placeholder: 1.0.0
-    validations:
-      required: true
+        **Do not paste API keys or key fragments.** Remove keys, credentials, private account identifiers,
+        and personal paths from everything you share here. Use private vulnerability reporting for
+        sensitive security findings instead of a public issue.
   - type: input
     id: opencode-version
     attributes:
       label: OpenCode version and client
-      description: The version from `opencode --version` and the client you use it through, such as the TUI or T3 Code.
-      placeholder: 2.3.0, TUI
+      description: The version from `opencode --version` and the client you use it through.
+      placeholder: 2.3.0, terminal UI
+    validations:
+      required: true
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      description: The first line of the `go_accounts` output.
+      placeholder: Go Switch 1.0.0
+    validations:
+      required: true
+  - type: input
+    id: go-accounts
+    attributes:
+      label: Number of Go accounts
+      description: How many OpenCode Go key credentials are connected.
+      placeholder: "2"
     validations:
       required: true
   - type: input
@@ -37,14 +47,6 @@ body:
       description: Paste the `plugins` entry with your options, minus any personal paths.
       render: jsonc
   - type: textarea
-    id: accounts
-    attributes:
-      label: Account status
-      description: Paste sanitized `go_accounts` output. Remove labels you do not want public.
-      render: text
-    validations:
-      required: true
-  - type: textarea
     id: expected
     attributes:
       label: Expected behavior
@@ -54,7 +56,8 @@ body:
   - type: textarea
     id: actual
     attributes:
-      label: Actual behavior
+      label: What happened instead
+      description: Paste sanitized `go_accounts` output if it helps. Describe the switch or response you saw.
     validations:
       required: true
   - type: textarea
