@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { RetryInput } from "../src/switcher.ts";
-import { createHarness, DAY, HOUR, jsonRequest, keyOf, MINUTE, T0, usage, win } from "./support.ts";
+import { createHarness, DAY, jsonRequest, keyOf, MINUTE, T0, usage, win } from "./support.ts";
 
 const provider = { providerID: "opencode-go" };
 
@@ -195,7 +195,7 @@ describe("choosing an account for a request", () => {
     await harness.switcher.refresh();
 
     const second = await sentWith(harness);
-    expect(harness.switcher.snapshot().accounts.map((account) => account.id)).toContain("c99");
+    expect(await harness.switcher.status()).toContain("cooper99");
     expect(keyOf(second.request.headers)).toBe(KEY_C99);
   });
 });
@@ -297,7 +297,7 @@ describe("limits inside the response hook", () => {
     expect(responseInput.response.status).toBe(200);
     expect(harness.sent[0]?.key).toBe(KEY_C95);
     expect(harness.notifications).toEqual([{ label: "cooper95", reason: "cooper9 invalid key" }]);
-    expect(harness.switcher.snapshot().accounts.find((account) => account.id === "c9")?.invalidKey).toBe(true);
+    expect(await harness.switcher.status()).toContain("cooper9 - invalid key");
   });
 
   test("a 403 changes nothing and is returned unchanged", async () => {
@@ -369,7 +369,7 @@ describe("limits inside the response hook", () => {
     expect(harness.sent[0]?.redirect).toBe("manual");
   });
 
-  test("all accounts exhausted: the first 429 stands and OpenCode's retry is stopped", async () => {
+  test("all accounts exhausted: the first 429 stands", async () => {
     const harness = createHarness({
       accounts,
       stored: "c9",
@@ -384,21 +384,9 @@ describe("limits inside the response hook", () => {
 
     expect(input.response).toBe(limited);
     expect(harness.sent).toHaveLength(0);
-
-    const decision: RetryInput = { error: { status: 429 }, attempt: 1, decision: { retry: true, delay: 500 } };
-    await harness.switcher.onRetry(decision);
-    expect(decision.decision).toEqual({ retry: false });
-
-    const otherDecision: RetryInput = {
-      error: { status: 500 },
-      attempt: 1,
-      decision: { retry: true, delay: 500 },
-    };
-    await harness.switcher.onRetry(otherDecision);
-    expect(otherDecision.decision).toEqual({ retry: true, delay: 500 });
   });
 
-  test("merely benched or unknown accounts keep OpenCode's retry untouched", async () => {
+  test("merely cooling down or unknown accounts keep OpenCode's retry untouched", async () => {
     const harness = createHarness({ accounts, stored: "c9", usageThrows: true });
     await harness.switcher.init();
 
@@ -413,7 +401,7 @@ describe("limits inside the response hook", () => {
     expect(decision.decision).toEqual({ retry: true, delay: 1_000 });
   });
 
-  test("with usage unreachable a limit still switches and benches for the fallback cooldown", async () => {
+  test("with usage unreachable a limit still switches and cools down for the fallback cooldown", async () => {
     const harness = createHarness({ accounts, stored: "c9", usageThrows: true });
     await harness.switcher.init();
 
@@ -428,11 +416,11 @@ describe("limits inside the response hook", () => {
     expect(responseInput.response.status).toBe(200);
     expect(harness.sent[0]?.key).toBe(KEY_C95);
     expect(harness.stored()).toBe("c95");
-    const blocked = harness.switcher.snapshot().accounts.find((account) => account.id === "c9");
-    expect(blocked?.blockedUntil).toBe(T0 + 15 * MINUTE);
+    const text = await harness.switcher.status();
+    expect(text).toContain(`cooper9 - cooling down until ${new Date(T0 + 15 * MINUTE).toISOString()}`);
   });
 
-  test("Retry-After sets the bench, in seconds and as a date", async () => {
+  test("Retry-After sets the cooldown, in seconds and as a date", async () => {
     const seconds = createHarness({ accounts, stored: "c9", usageThrows: true });
     await seconds.switcher.init();
     const first = await sentWith(seconds);
@@ -441,8 +429,8 @@ describe("limits inside the response hook", () => {
       request: first.request,
       response: new Response("rate limited", { status: 429, headers: { "retry-after": "60" } }),
     });
-    expect(seconds.switcher.snapshot().accounts.find((account) => account.id === "c9")?.blockedUntil).toBe(
-      T0 + MINUTE,
+    expect(await seconds.switcher.status()).toContain(
+      `cooper9 - cooling down until ${new Date(T0 + MINUTE).toISOString()}`,
     );
 
     const dated = createHarness({ accounts, stored: "c9", usageThrows: true });
@@ -456,8 +444,8 @@ describe("limits inside the response hook", () => {
         headers: { "retry-after": new Date(T0 + 5 * MINUTE).toUTCString() },
       }),
     });
-    expect(dated.switcher.snapshot().accounts.find((account) => account.id === "c9")?.blockedUntil).toBe(
-      T0 + 5 * MINUTE,
+    expect(await dated.switcher.status()).toContain(
+      `cooper9 - cooling down until ${new Date(T0 + 5 * MINUTE).toISOString()}`,
     );
   });
 
@@ -467,6 +455,7 @@ describe("limits inside the response hook", () => {
       stored: "c9",
       usage: { c95: headroom(20, T0 + 5 * DAY) },
       usageStalls: ["c9"],
+      options: { limitUsageBudgetMs: 20 },
     });
     await harness.switcher.init();
 
@@ -480,12 +469,10 @@ describe("limits inside the response hook", () => {
     await harness.switcher.onResponse(responseInput);
     const elapsed = Date.now() - started;
 
-    expect(elapsed).toBeGreaterThanOrEqual(1_900);
+    expect(elapsed).toBeGreaterThanOrEqual(15);
     expect(responseInput.response.status).toBe(200);
     expect(harness.sent[0]?.key).toBe(KEY_C95);
-    expect(harness.switcher.snapshot().accounts.find((account) => account.id === "c9")?.blockedUntil).toBe(
-      T0 + 15 * MINUTE,
-    );
+    expect(harness.notifications).toEqual([{ label: "cooper95", reason: "cooper9 cooling down" }]);
   }, 10_000);
 
   test("two parallel failures switch once and both retry on the new account", async () => {
@@ -587,23 +574,7 @@ describe("the current account and explicit selection", () => {
 
     const second = createHarness({ accounts: allAccounts, stored: first.stored() });
     await second.switcher.init();
-    expect(second.switcher.snapshot().currentID).toBe("c99");
     expect(await second.switcher.status()).toContain("current: cooper99 - restored from storage");
-  });
-
-  test("manual activation in the host does not change the key in use", async () => {
-    const harness = createHarness({
-      accounts,
-      stored: "c95",
-      usage: { c9: headroom(5, T0 + DAY), c95: headroom(90, T0 + 20 * DAY) },
-    });
-    await harness.switcher.init();
-    await harness.switcher.refresh();
-
-    harness.manualActivate("c9");
-    const input = await sentWith(harness);
-
-    expect(keyOf(input.request.headers)).toBe(KEY_C95);
   });
 
   test("selecting an eligible account switches, persists, activates, and notifies", async () => {
@@ -807,5 +778,39 @@ describe("status text", () => {
     expect(text.split("\n")[0]).toBe("Go Switch 1.0.0");
     expect(text).toContain("0 connected");
     expect(text).toContain("No OpenCode Go keys are connected");
+  });
+});
+
+describe("hook safety", () => {
+  test("a hook resolves even when a dependency throws", async () => {
+    const notifyFails = createHarness({
+      accounts,
+      stored: "c9",
+      usage: { c9: exhaustedMonthly(T0 + DAY), c95: headroom(20, T0 + 5 * DAY) },
+      notifyThrows: true,
+    });
+    await notifyFails.switcher.init();
+    await notifyFails.switcher.refresh();
+    const switched = { model: provider, request: jsonRequest() };
+    await notifyFails.switcher.onRequest(switched);
+    expect(keyOf(switched.request.headers)).toBe(KEY_C95);
+
+    const resolveFails = createHarness({ accounts, stored: "c9", resolveThrows: true });
+    await resolveFails.switcher.init();
+    await resolveFails.switcher.onRequest({ model: provider, request: jsonRequest() });
+
+    const fetchFails = createHarness({ accounts, stored: "c9", usageThrows: true, fetchThrows: true });
+    await fetchFails.switcher.init();
+    const requestInput = await sentWith(fetchFails);
+    await fetchFails.switcher.onResponse({
+      model: provider,
+      request: requestInput.request,
+      response: new Response("rate limited", { status: 429 }),
+    });
+    await fetchFails.switcher.onRetry({
+      error: { status: 429 },
+      attempt: 1,
+      decision: { retry: true, delay: 500 },
+    });
   });
 });

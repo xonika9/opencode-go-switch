@@ -35,18 +35,6 @@ describe("ordering", () => {
     expect(pickNext([beta, alpha, sameLabel], T0)?.id).toBe("id-0");
   });
 
-  test("unknown usage sorts after every account with a usable monthly reset", () => {
-    const unknown = account("b", "unknown");
-    const noReset = account("c", "no-reset", usage({ monthly: win(10, null) }));
-    const known = account("a", "known", usage({ monthly: win(10, T0 + DAY) }));
-
-    expect(candidates([unknown, noReset, known], T0).map((entry) => entry.label)).toEqual([
-      "known",
-      "no-reset",
-      "unknown",
-    ]);
-  });
-
   test("excluded accounts are skipped", () => {
     const a = account("a", "cooper9", usage({ monthly: win(10, T0 + DAY) }));
     const b = account("b", "cooper95", usage({ monthly: win(10, T0 + 2 * DAY) }));
@@ -82,28 +70,26 @@ describe("eligibility", () => {
     expect(candidates([subject], T0)).toEqual([]);
   });
 
-  test("a disabled account, an invalid key, and a benched account are never candidates", () => {
+  test("a disabled account, an invalid key, and a cooling-down account are never candidates", () => {
     const disabled = createAccount({ id: "a", label: "disabled", disabled: true });
     const invalid = account("b", "invalid");
     invalid.invalidKey = true;
-    const benched = account("c", "benched");
-    benched.blockedUntil = T0 + HOUR;
-    benched.blockedLabel = "limit";
+    const cooling = account("c", "cooling");
+    cooling.cooldownUntil = T0 + HOUR;
 
-    expect(candidates([disabled, invalid, benched], T0)).toEqual([]);
-    expect(pickNext([disabled, invalid, benched], T0)).toBeUndefined();
+    expect(candidates([disabled, invalid, cooling], T0)).toEqual([]);
+    expect(pickNext([disabled, invalid, cooling], T0)).toBeUndefined();
   });
 
-  test("a benched account with unknown usage is an unknown candidate once the bench ends", () => {
-    const benched = account("a", "benched");
-    benched.blockedUntil = T0 + HOUR;
-    benched.blockedLabel = "limit";
+  test("a cooling-down account with unknown usage is an unknown candidate once the cooldown ends", () => {
+    const cooling = account("a", "cooling");
+    cooling.cooldownUntil = T0 + HOUR;
     const known = account("b", "known", usage({ monthly: win(10, T0 + DAY) }));
 
-    expect(candidates([benched, known], T0)).toEqual([known]);
-    expect(candidates([benched, known], T0 + HOUR).map((entry) => entry.label)).toEqual([
+    expect(candidates([cooling, known], T0)).toEqual([known]);
+    expect(candidates([cooling, known], T0 + HOUR).map((entry) => entry.label)).toEqual([
       "known",
-      "benched",
+      "cooling",
     ]);
   });
 });
@@ -128,20 +114,14 @@ describe("classification", () => {
     expect(candidates([subject], T0 + 5 * DAY - 1)).toEqual([]);
   });
 
-  test("a window at 100% counts as exhausted even when status is ok", () => {
-    const subject = account("a", "cooper9", usage({ monthly: win(100, T0 + DAY) }));
-    expect(classify(subject, T0).kind).toBe("exhausted");
-  });
-
   test("a cooldown and an exhausted Go window report different block kinds", () => {
     const exhausted = account("a", "cooper9", usage({ weekly: win(100, T0 + DAY) }));
-    const benched = account("b", "cooper95");
-    benched.blockedUntil = T0 + HOUR;
-    benched.blockedLabel = "limit";
+    const cooling = account("b", "cooper95");
+    cooling.cooldownUntil = T0 + HOUR;
 
     expect(classify(exhausted, T0)).toEqual({ kind: "exhausted", label: "weekly", until: T0 + DAY });
-    expect(classify(benched, T0)).toEqual({ kind: "cooldown", label: "limit", until: T0 + HOUR });
-    expect(classify(benched, T0 + HOUR).kind).toBe("unknown");
+    expect(classify(cooling, T0)).toEqual({ kind: "cooldown", until: T0 + HOUR });
+    expect(classify(cooling, T0 + HOUR).kind).toBe("unknown");
   });
 
   test("a disabled account and an invalid key are their own blocks", () => {

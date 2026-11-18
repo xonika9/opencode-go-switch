@@ -1,6 +1,8 @@
 import type { Usage, UsageWindow } from "./types.ts";
 
-export const DEFAULT_USAGE_URL = "https://opencode.ai/zen/go/v1/usage";
+const USAGE_PATH = "/zen/go/v1/usage";
+
+export const DEFAULT_USAGE_URL = `https://opencode.ai${USAGE_PATH}`;
 
 /** Enforced while reading the body, so a lying Content-Length cannot get past it. */
 export const MAX_USAGE_BYTES = 64 * 1024;
@@ -87,7 +89,7 @@ function usageUrl(credential: UsageCredential, configuredUrl: string): string | 
     } catch {
       return null;
     }
-    raw = `${origin}/zen/go/v1/usage`;
+    raw = `${origin}${USAGE_PATH}`;
   }
   let parsed: URL;
   try {

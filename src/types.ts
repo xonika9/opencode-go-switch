@@ -29,12 +29,11 @@ export interface Account {
   label: string;
   disabled: boolean;
   usage: Usage | null;
-  /** When `usage` was last set, in ms since the epoch. 0 means never. */
-  checkedAt: number;
+  /** When `usage` was last set, in ms since the epoch. Null means never. */
+  checkedAt: number | null;
   invalidKey: boolean;
   /** Selection is blocked until this time even though usage is unknown. */
-  blockedUntil: number | null;
-  blockedLabel: string | null;
+  cooldownUntil: number | null;
 }
 
 export function createAccount(info: AccountInfo): Account {
@@ -43,9 +42,8 @@ export function createAccount(info: AccountInfo): Account {
     label: info.label,
     disabled: info.disabled,
     usage: null,
-    checkedAt: 0,
+    checkedAt: null,
     invalidKey: false,
-    blockedUntil: null,
-    blockedLabel: null,
+    cooldownUntil: null,
   };
 }

@@ -9,13 +9,13 @@ import { DEFAULT_USAGE_URL, fetchUsage } from "./usage.ts";
 
 type Context = Parameters<Parameters<typeof Plugin.define>[0]["setup"]>[0];
 type IntegrationConnection = Awaited<ReturnType<Context["integration"]["get"]>>["data"]["connections"][number];
-type HookName = "http.request" | "http.response" | "retry";
 type Disposable = { dispose: () => Promise<void> | void };
 
 const STORAGE_KEY = "opencode-go-autoswitch.current";
 const DEFAULT_POLL_INTERVAL_MS = 300_000;
 const DEFAULT_USAGE_TIMEOUT_MS = 5_000;
 const DEFAULT_FALLBACK_COOLDOWN_MS = 900_000;
+const DEFAULT_LIMIT_USAGE_BUDGET_MS = 2_000;
 const UNKNOWN_VERSION = "unknown";
 
 const toolInput = Schema.Struct({ select: Schema.optional(Schema.String) });
@@ -60,6 +60,7 @@ export function readOptions(raw: Readonly<Record<string, unknown>>): Options {
     pollIntervalMs: numberOption(raw.pollIntervalMs, DEFAULT_POLL_INTERVAL_MS, 0),
     usageTimeoutMs: numberOption(raw.usageTimeoutMs, DEFAULT_USAGE_TIMEOUT_MS, 1),
     fallbackCooldownMs: numberOption(raw.fallbackCooldownMs, DEFAULT_FALLBACK_COOLDOWN_MS, 0),
+    limitUsageBudgetMs: DEFAULT_LIMIT_USAGE_BUDGET_MS,
     usageUrl: stringOption(raw.usageUrl, DEFAULT_USAGE_URL),
     integrationID: stringOption(raw.integrationID, "opencode-go"),
     providerID: stringOption(raw.providerID, "opencode-go"),
@@ -73,7 +74,6 @@ export default Plugin.define({
     const options = readOptions(ctx.options);
     const connections = new Map<string, IntegrationConnection>();
     const disposers: Array<() => Promise<void> | void> = [];
-    const registeredHooks = new Set<HookName>();
     let emitSwitch: ((event: { label: string; reason: string }) => Promise<void>) | undefined;
 
     const switcher = createSwitcher({
@@ -120,29 +120,25 @@ export default Plugin.define({
       },
     });
 
-    /** Registers one provider-scoped hook once, and remembers it for cleanup. */
-    const addHook = async (name: HookName, register: () => Promise<Disposable>): Promise<void> => {
-      if (registeredHooks.has(name)) return;
+    const addHook = async (register: () => Promise<Disposable>): Promise<void> => {
       const hook = await register();
-      registeredHooks.add(name);
       disposers.push(() => hook.dispose());
     };
 
-    let starting: Promise<void>;
     try {
-      await addHook("http.request", () =>
+      await addHook(() =>
         ctx.session.hook("http.request", (input) => switcher.onRequest(input), {
           providerID: options.providerID,
         }),
       );
 
-      await addHook("http.response", () =>
+      await addHook(() =>
         ctx.session.hook("http.response", (input) => switcher.onResponse(input), {
           providerID: options.providerID,
         }),
       );
 
-      await addHook("retry", () =>
+      await addHook(() =>
         ctx.session.hook("retry", (input) => switcher.onRetry(input), {
           providerID: options.providerID,
         }),
@@ -159,25 +155,22 @@ export default Plugin.define({
       });
       disposers.push(() => tool.dispose());
 
-      try {
-        const rpc = await ctx.rpc.register(Contract, {});
+      const rpc = await Promise.resolve()
+        .then(() => ctx.rpc.register(Contract, {}))
+        .catch(() => undefined);
+      if (rpc !== undefined) {
         emitSwitch = (event) => rpc.events.emit("switched", { label: event.label, reason: event.reason });
         disposers.push(() => rpc.dispose());
-      } catch {
-        // Toasts are optional; without them the hooks and the tool still work.
       }
 
-      starting = switcher.start().catch(() => undefined);
+      void switcher.start().catch(() => undefined);
     } catch (error) {
-      switcher.stop();
+      await switcher.stop();
       throw error;
     }
 
     return async () => {
-      // Awaited so the timer exists before it is cleared, then disposed registration by registration.
-      await starting;
-      switcher.stop();
-      registeredHooks.clear();
+      await switcher.stop();
       await Promise.allSettled(disposers.map((dispose) => Promise.resolve().then(dispose)));
     };
   },

@@ -1,5 +1,5 @@
-import { classify, WINDOWS } from "./select.ts";
-import type { Classification } from "./select.ts";
+import { classify, monthlyReset, WINDOWS } from "./select.ts";
+import type { Block, Classification } from "./select.ts";
 import type { Account } from "./types.ts";
 
 /** The most recent switch, kept apart from the current reason so a status still explains it later. */
@@ -23,7 +23,7 @@ function isoDate(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
-export function relativeTime(until: number, now: number): string {
+function relativeTime(until: number, now: number): string {
   const delta = until - now;
   if (delta <= 0) return "now";
   const minutes = Math.round(delta / 60_000);
@@ -46,7 +46,7 @@ export function formatMoment(until: number, now: number): string {
 }
 
 /** How long ago something happened, for the last switch line. */
-export function formatAgo(at: number, now: number): string {
+function formatAgo(at: number, now: number): string {
   const delta = now - at;
   if (delta < 60_000) return "just now";
   const minutes = Math.round(delta / 60_000);
@@ -74,6 +74,12 @@ export function describeState(state: Classification, now: number): string {
   }
 }
 
+/** The refusal sentence for a label that cannot be selected, printed above the status. */
+export function formatRefusal(label: string, block: Block, now: number): string {
+  const reason = block.kind === "invalid-key" ? "has an invalid key" : `is ${describeState(block, now)}`;
+  return `Refused: "${label}" ${reason}.`;
+}
+
 /** One decimal only where whole numbers would hide that a window is nearly full. */
 function percentText(percent: number): string {
   const rounded = Math.round(percent * 10) / 10;
@@ -90,7 +96,7 @@ function usageLine(account: Account): string {
 }
 
 function resetLine(account: Account, now: number): string {
-  const reset = account.usage?.monthly.resetsAt ?? null;
+  const reset = monthlyReset(account);
   if (reset === null) return "monthly reset unknown";
   return `monthly resets ${formatWhen(reset, now)}`;
 }

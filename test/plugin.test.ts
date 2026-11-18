@@ -33,6 +33,14 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
+function stubFetch(respond: (url: string) => Response | Promise<Response>): void {
+  globalThis.fetch = (async (url: string) => respond(url)) as unknown as typeof fetch;
+}
+
+function expectDisposed(actual: readonly string[], expected: readonly string[]): void {
+  expect([...actual].sort()).toEqual([...expected].sort());
+}
+
 interface FakeTool {
   name: string;
   description: string;
@@ -198,7 +206,7 @@ async function waitFor(check: () => boolean, timeoutMs: number): Promise<void> {
 
 describe("server plugin wiring", () => {
   test("registers provider-scoped hooks, the tool, and the RPC contract", async () => {
-    globalThis.fetch = (async () => new Response(usagePayload, { status: 200 })) as unknown as typeof fetch;
+    stubFetch(() => new Response(usagePayload, { status: 200 }));
     const fake = fakeContext();
     const plugin = await loadServer();
 
@@ -224,11 +232,11 @@ describe("server plugin wiring", () => {
     expect(text).not.toContain("OPENCODE_GO_KEY");
 
     await cleanup?.();
-    expect(fake.disposed).toEqual(["http.request", "http.response", "retry", "tool", "rpc"]);
+    expectDisposed(fake.disposed, ["http.request", "http.response", "retry", "tool", "rpc"]);
   });
 
   test("puts a resolved key on the outgoing request", async () => {
-    globalThis.fetch = (async () => new Response(usagePayload, { status: 200 })) as unknown as typeof fetch;
+    stubFetch(() => new Response(usagePayload, { status: 200 }));
     const fake = fakeContext();
     const plugin = await loadServer();
     const cleanup = await plugin.setup(fake.ctx as never);
@@ -243,7 +251,7 @@ describe("server plugin wiring", () => {
   });
 
   test("selecting an account activates it, persists it, and emits the RPC event", async () => {
-    globalThis.fetch = (async () => new Response(usagePayload, { status: 200 })) as unknown as typeof fetch;
+    stubFetch(() => new Response(usagePayload, { status: 200 }));
     const fake = fakeContext();
     const plugin = await loadServer();
     const cleanup = await plugin.setup(fake.ctx as never);
@@ -260,13 +268,13 @@ describe("server plugin wiring", () => {
     await cleanup?.();
   });
 
-  test("plugin options override the endpoint; a leftover toast option does not silence switches", async () => {
+  test("plugin options override the endpoint", async () => {
     let requested: string | undefined;
-    globalThis.fetch = (async (url: string) => {
+    stubFetch((url) => {
       requested = url;
       return new Response(usagePayload, { status: 200 });
-    }) as unknown as typeof fetch;
-    const fake = fakeContext({ usageUrl: "https://example.test/usage", toast: false });
+    });
+    const fake = fakeContext({ usageUrl: "https://example.test/usage" });
     const plugin = await loadServer();
     const cleanup = await plugin.setup(fake.ctx as never);
 
@@ -311,7 +319,7 @@ describe("server plugin wiring", () => {
   });
 
   test("a failed RPC registration leaves the hooks and the tool working", async () => {
-    globalThis.fetch = (async () => new Response(usagePayload, { status: 200 })) as unknown as typeof fetch;
+    stubFetch(() => new Response(usagePayload, { status: 200 }));
     const fake = fakeContext({}, { rpcThrows: true });
     const plugin = await loadServer();
     const cleanup = await plugin.setup(fake.ctx as never);
@@ -328,11 +336,11 @@ describe("server plugin wiring", () => {
     expect(fake.events).toHaveLength(0);
 
     await cleanup?.();
-    expect(fake.disposed).toEqual(["http.request", "http.response", "retry", "tool"]);
+    expectDisposed(fake.disposed, ["http.request", "http.response", "retry", "tool"]);
   });
 
   test("the retry hook declines a limit when every account is confirmed exhausted", async () => {
-    globalThis.fetch = (async () => new Response(exhaustedPayload, { status: 200 })) as unknown as typeof fetch;
+    stubFetch(() => new Response(exhaustedPayload, { status: 200 }));
     const fake = fakeContext();
     const plugin = await loadServer();
     const cleanup = await plugin.setup(fake.ctx as never);
@@ -351,7 +359,7 @@ describe("server plugin wiring", () => {
   });
 
   test("the retry hook leaves the decision alone while an account still has headroom", async () => {
-    globalThis.fetch = (async () => new Response(usagePayload, { status: 200 })) as unknown as typeof fetch;
+    stubFetch(() => new Response(usagePayload, { status: 200 }));
     const fake = fakeContext();
     const plugin = await loadServer();
     const cleanup = await plugin.setup(fake.ctx as never);
@@ -367,10 +375,10 @@ describe("server plugin wiring", () => {
 
   test("cleanup disposes every registration and stops polling, even when one dispose throws", async () => {
     let polls = 0;
-    globalThis.fetch = (async () => {
+    stubFetch(() => {
       polls += 1;
       return new Response(usagePayload, { status: 200 });
-    }) as unknown as typeof fetch;
+    });
     const fake = fakeContext({ pollIntervalMs: 10 }, { throwOnDispose: "http.request" });
     const plugin = await loadServer();
     const cleanup = await plugin.setup(fake.ctx as never);
@@ -380,7 +388,7 @@ describe("server plugin wiring", () => {
     expect(fake.disposed).toEqual([]);
 
     await cleanup?.();
-    expect(fake.disposed).toEqual(["http.request", "http.response", "retry", "tool", "rpc"]);
+    expectDisposed(fake.disposed, ["http.request", "http.response", "retry", "tool", "rpc"]);
 
     await new Promise((resolve) => setTimeout(resolve, 30));
     const afterCleanup = polls;

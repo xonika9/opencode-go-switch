@@ -1,6 +1,6 @@
 import { createSwitcher } from "../src/switcher.ts";
 import type { Switcher, SwitcherOptions } from "../src/switcher.ts";
-import type { AccountInfo, Usage, UsageWindow } from "../src/types.ts";
+import type { Usage, UsageWindow } from "../src/types.ts";
 import type { UsageResult } from "../src/usage.ts";
 
 export const T0 = Date.parse("2026-11-18T12:00:00.000Z");
@@ -76,7 +76,10 @@ export interface HarnessOptions {
   /** Per-account delay before a usage read answers, in milliseconds. */
   readonly usageDelayMs?: Readonly<Record<string, number>>;
   readonly unresolvable?: readonly string[];
-  readonly respond?: (request: Request, index: number) => Response | Promise<Response>;
+  readonly resolveThrows?: boolean;
+  readonly notifyThrows?: boolean;
+  readonly fetchThrows?: boolean;
+  readonly respond?: (request: Request) => Response | Promise<Response>;
 }
 
 export interface Harness {
@@ -85,15 +88,11 @@ export interface Harness {
   readonly activated: string[];
   readonly notifications: Notification[];
   readonly saved: string[];
-  /** Activations the fake host performs on its own, as a person would in a UI. */
-  readonly hostActivated: string[];
   stored(): string | undefined;
   setUsage(accountID: string, result: UsageResult): void;
   setNow(value: number): void;
   now(): number;
   addAccount(account: FakeAccount): void;
-  manualActivate(accountID: string): void;
-  accountInfos(): AccountInfo[];
 }
 
 export function createHarness(input: HarnessOptions): Harness {
@@ -102,7 +101,6 @@ export function createHarness(input: HarnessOptions): Harness {
   const usageResults = new Map<string, UsageResult>(Object.entries(input.usage ?? {}));
   const sent: SentRequest[] = [];
   const activated: string[] = [];
-  const hostActivated: string[] = [];
   const notifications: Notification[] = [];
   const saved: string[] = [];
   let stored: string | undefined = input.stored;
@@ -117,6 +115,7 @@ export function createHarness(input: HarnessOptions): Harness {
       pollIntervalMs: 60_000,
       fallbackCooldownMs: 15 * MINUTE,
       usageTimeoutMs: 100,
+      limitUsageBudgetMs: 2_000,
       version: "1.0.0",
       ...input.options,
     },
@@ -127,6 +126,7 @@ export function createHarness(input: HarnessOptions): Harness {
         disabled: account.disabled === true,
       })),
     resolveKey: async (accountID) => {
+      if (input.resolveThrows === true) throw new Error("credential store exploded");
       if (input.unresolvable?.includes(accountID) === true) return undefined;
       const key = keys.get(accountID);
       return key === undefined ? undefined : { key };
@@ -153,9 +153,10 @@ export function createHarness(input: HarnessOptions): Harness {
     },
     notify: async (event) => {
       notifications.push({ label: event.label, reason: event.reason });
+      if (input.notifyThrows === true) throw new Error("notification exploded");
     },
     fetch: async (request) => {
-      const index = sent.length;
+      if (input.fetchThrows === true) throw new Error("fetch exploded");
       const copy = request.clone();
       sent.push({
         url: request.url,
@@ -164,7 +165,7 @@ export function createHarness(input: HarnessOptions): Harness {
         body: await copy.text(),
         redirect: request.redirect,
       });
-      return (await input.respond?.(request, index)) ?? new Response("ok", { status: 200 });
+      return (await input.respond?.(request)) ?? new Response("ok", { status: 200 });
     },
   });
 
@@ -174,7 +175,6 @@ export function createHarness(input: HarnessOptions): Harness {
     activated,
     notifications,
     saved,
-    hostActivated,
     stored: () => stored,
     setUsage: (accountID, result) => usageResults.set(accountID, result),
     setNow: (value) => {
@@ -185,14 +185,5 @@ export function createHarness(input: HarnessOptions): Harness {
       accounts.push({ ...account });
       keys.set(account.id, account.key);
     },
-    manualActivate: (accountID) => {
-      hostActivated.push(accountID);
-    },
-    accountInfos: () =>
-      accounts.map((account) => ({
-        id: account.id,
-        label: account.label,
-        disabled: account.disabled === true,
-      })),
   };
 }

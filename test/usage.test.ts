@@ -57,18 +57,19 @@ describe("parseUsage", () => {
     });
   });
 
-  test("accepts an epoch-millisecond reset time and reads it like the ISO form", () => {
-    const rolling = Date.parse("2026-11-18T15:00:00.000Z");
-    const weekly = Date.parse("2026-11-22T00:00:00.000Z");
-    const monthly = Date.parse("2026-12-01T00:00:00.000Z");
+  test("accepts an epoch-millisecond reset time", () => {
     const parsed = parseUsage({
       usage: {
-        rolling: { status: "ok", percent: 32.5, resetsAt: rolling },
-        weekly: { status: "ok", percent: 44, resetsAt: weekly },
-        monthly: { status: "rate-limited", percent: 100, resetsAt: monthly },
+        rolling: { status: "ok", percent: 32.5, resetsAt: Date.parse("2026-11-18T15:00:00.000Z") },
+        weekly: { status: "ok", percent: 44, resetsAt: Date.parse("2026-11-22T00:00:00.000Z") },
+        monthly: { status: "rate-limited", percent: 100, resetsAt: Date.parse("2026-12-01T00:00:00.000Z") },
       },
     });
-    expect(parsed).toEqual(parseUsage(validPayload));
+    expect(parsed).toEqual({
+      rolling: { percent: 32.5, limited: false, resetsAt: Date.parse("2026-11-18T15:00:00.000Z") },
+      weekly: { percent: 44, limited: false, resetsAt: Date.parse("2026-11-22T00:00:00.000Z") },
+      monthly: { percent: 100, limited: true, resetsAt: Date.parse("2026-12-01T00:00:00.000Z") },
+    });
   });
 
   test("keeps a window with an unusable reset time, without a reset time", () => {

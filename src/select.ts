@@ -43,7 +43,7 @@ export type Block =
   | { readonly kind: "disabled" }
   | { readonly kind: "invalid-key" }
   | { readonly kind: "exhausted"; readonly label: string; readonly until: number | null }
-  | { readonly kind: "cooldown"; readonly label: string; readonly until: number };
+  | { readonly kind: "cooldown"; readonly until: number };
 
 /**
  * Where an account stands at one moment: usable with known headroom, usable with usage nobody has read
@@ -68,8 +68,8 @@ export function classify(account: Account, now: number): Classification {
       return { kind: "exhausted", label: exhausted.label, until: exhausted.until };
     }
   }
-  if (account.blockedUntil !== null && now < account.blockedUntil) {
-    return { kind: "cooldown", label: account.blockedLabel ?? "limit", until: account.blockedUntil };
+  if (account.cooldownUntil !== null && now < account.cooldownUntil) {
+    return { kind: "cooldown", until: account.cooldownUntil };
   }
   return account.usage === null ? { kind: "unknown" } : { kind: "eligible" };
 }
@@ -103,7 +103,7 @@ export function causeOf(account: Account, state: Classification): string {
   }
 }
 
-function monthlyReset(account: Account): number | null {
+export function monthlyReset(account: Account): number | null {
   return account.usage?.monthly.resetsAt ?? null;
 }
 
@@ -115,26 +115,28 @@ const UNKNOWN = 2;
 interface Ranked {
   readonly account: Account;
   readonly group: number;
-  /** Sort key inside a group: the monthly reset itself, or last place when there is no usable one. */
-  readonly reset: number;
+  /** Sort key inside a group: the monthly reset itself, or null when there is no usable one. */
+  readonly reset: number | null;
 }
 
 function rankOf(account: Account, now: number): Ranked | null {
   const state = classify(account, now);
   if (state.kind === "unknown") {
-    return { account, group: UNKNOWN, reset: Number.POSITIVE_INFINITY };
+    return { account, group: UNKNOWN, reset: null };
   }
   if (state.kind !== "eligible") return null;
   const reset = monthlyReset(account);
   if (reset === null || reset <= now) {
-    return { account, group: RESET_LAST, reset: Number.POSITIVE_INFINITY };
+    return { account, group: RESET_LAST, reset: null };
   }
   return { account, group: RESET_FIRST, reset };
 }
 
 function compare(a: Ranked, b: Ranked): number {
   if (a.group !== b.group) return a.group - b.group;
-  if (a.reset !== b.reset) return a.reset - b.reset;
+  const aReset = a.reset ?? Number.POSITIVE_INFINITY;
+  const bReset = b.reset ?? Number.POSITIVE_INFINITY;
+  if (aReset !== bReset) return aReset - bReset;
   const byLabel = a.account.label.localeCompare(b.account.label, "en");
   if (byLabel !== 0) return byLabel;
   return a.account.id.localeCompare(b.account.id);
