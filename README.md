@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/opencode-go-autoswitch-hero.jpg" alt="Go Switch: Limits hit? Keep coding." width="100%">
+  <img src="https://raw.githubusercontent.com/xonika9/opencode-go-autoswitch/main/assets/opencode-go-autoswitch-hero.jpg" alt="Go Switch: Limits hit? Keep coding." width="100%">
 </p>
 
 # Go Switch
@@ -133,12 +133,16 @@ OpenCode Go accounts (<count> connected)
 current: <label> - <reason>
 last switch: <from> → <to>, <cause>, <timestamp> (<ago>)
 
+<label> (current) - <state>
+  5h <percent>% · weekly <percent>% · monthly <percent>%
+  monthly resets <date> (<relative time>)
+
 <label> - <state>
   5h <percent>% · weekly <percent>% · monthly <percent>%
   monthly resets <date> (<relative time>)
 ```
 
-The line order is fixed: version, account count, current account with the reason it is current, the last switch (`last switch: none` until the first one), then one block per account. Each account block shows its state, the 5h, weekly, and monthly percentages, and the monthly reset (`monthly reset unknown` when the endpoint gave no usable time). States are `eligible`, `usage unknown`, `exhausted: <window> until <time>`, `cooling down until <time>`, `invalid key`, and `disabled`. Percentages get one decimal only when a window is nearly full and a whole number would hide it.
+The line order is fixed: version, account count, current account with the reason it is current, the last switch (`last switch: none` until the first one), then one block per account; the current account carries `(current)` after its label. Each account block shows its state, the 5h, weekly, and monthly percentages, and the monthly reset (`monthly reset unknown` when the endpoint gave no usable time). States are `eligible`, `usage unknown`, `exhausted: <window> until <time>`, `cooling down until <time>`, `invalid key`, and `disabled`. Percentages get one decimal only when a window is nearly full and a whole number would hide it.
 
 To choose an account yourself:
 
