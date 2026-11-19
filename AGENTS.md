@@ -39,3 +39,27 @@ This repository is the public source of an OpenCode V2 plugin that switches betw
 
 - Do not commit, push, tag, or publish unless the user explicitly requests it.
 - Preserve unrelated and user-owned changes. Never discard work with `git checkout`, `git reset --hard`, or a similar shortcut.
+
+<!-- x9-context-files-generator:execution:start -->
+## Execution discipline
+
+Shared defaults from the `x9-context-files-generator` template. Repository-specific instructions outside this block take precedence. Local contains optional pointers to existing project resources.
+
+- Use the project's existing verification tools. Do not build a separate acceptance framework merely to verify a routine change.
+- After a check fails, run the failing check and checks affected by its fix. Repeat a previously passing check when the change could invalidate its result or the project requires a fresh run.
+- Keep code comments focused on non-obvious reasons, invariants, and workarounds. Preserve license notices and useful API documentation; avoid narrating the code.
+
+<!-- x9-context-files-generator:execution:end -->
+
+<!-- x9-context-files-generator:documentation:start -->
+## Documentation discipline
+
+Shared defaults from the `x9-context-files-generator` template. Repository-specific instructions outside this block take precedence. Local contains optional pointers to existing project resources.
+
+- Update current documentation affected by a change. Preserve historical plans and research as historical evidence rather than silently rewriting them to describe the present.
+- Keep setup and verification procedures in their existing scripts or documentation, with concise entry points in README or agent instructions where useful.
+- Keep current work status in its existing home; do not maintain competing status summaries across documents.
+- For documentation-only changes, run the applicable documentation checks and inspect changed repository-relative links. Run code checks when the change affects what they verify.
+- Use a tool's configured artifact location instead of creating a parallel directory.
+
+<!-- x9-context-files-generator:documentation:end -->
