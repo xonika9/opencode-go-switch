@@ -185,6 +185,37 @@ describe("choosing an account for a request", () => {
     expect(input.request.headers.get("authorization")).toBeNull();
   });
 
+  test("a limited x-goog-api-key request is retried with only the next account's key", async () => {
+    const retried: Headers[] = [];
+    const harness = createHarness({
+      accounts,
+      stored: "c9",
+      usage: { c9: headroom(90, T0 + DAY), c95: headroom(20, T0 + 10 * DAY) },
+      respond: (request) => {
+        retried.push(request.headers);
+        return new Response("ok");
+      },
+    });
+    await harness.switcher.init();
+    await harness.switcher.refresh();
+
+    const request = new Request("https://opencode.ai/inference/go/google/v1beta/models/m:streamGenerateContent", {
+      method: "POST",
+      headers: { "x-goog-api-key": "opencode-managed" },
+      body: "{}",
+    });
+    const input = { model: provider, request };
+    await harness.switcher.onRequest(input);
+    expect(input.request.headers.get("x-goog-api-key")).toBe(KEY_C9);
+
+    harness.setUsage("c9", exhaustedMonthly(T0 + DAY));
+    await harness.switcher.onResponse({ ...input, response: new Response("limit", { status: 429 }) });
+
+    expect(retried.map((headers) => [headers.get("x-goog-api-key"), headers.get("authorization")])).toEqual([
+      [KEY_C95, null],
+    ]);
+  });
+
   test("adds a bearer header when the request carries neither key header", async () => {
     const harness = createHarness({ accounts, stored: "c9" });
     await harness.switcher.init();

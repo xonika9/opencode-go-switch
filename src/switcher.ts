@@ -23,6 +23,8 @@ export interface SwitcherOptions {
   /** How long a usage read may take before a limit is handled as if usage were unknown. */
   readonly limitUsageBudgetMs: number;
   readonly version: string;
+  /** Where to connect an account, printed when none is connected. */
+  readonly connectHint: string;
 }
 
 export interface SwitcherDeps {
@@ -46,6 +48,8 @@ export interface HttpRequestInput {
 
 export interface HttpResponseInput extends HttpRequestInput {
   response: Response;
+  /** Sends the retries of this request; `deps.fetch` when absent. */
+  readonly fetch?: (request: Request) => Promise<Response>;
 }
 
 /** What OpenCode may decide after a failed attempt. */
@@ -73,17 +77,19 @@ const STARTUP = "startup: earliest monthly reset";
 const EXPLICIT = "explicitly selected";
 const RESTORED = "restored from storage";
 
+/** Headers that carry the bare key: Anthropic's and Google's. */
+const KEY_HEADERS = ["x-api-key", "x-goog-api-key"] as const;
+
 /**
  * Puts the key on the request in whichever header the caller already uses, so the provider keeps
- * accepting it. A request with neither header gets an authorization header.
+ * accepting it and no other account's key stays behind. A request with none of them gets an
+ * authorization header.
  */
 function withKey(request: Request, key: string, redirect?: RequestRedirect): Request {
   const headers = new Headers(request.headers);
-  const usesApiKey = headers.has("x-api-key");
-  const usesAuthorization = headers.has("authorization");
-  if (usesApiKey) headers.set("x-api-key", key);
-  if (usesAuthorization) headers.set("authorization", `Bearer ${key}`);
-  if (!usesApiKey && !usesAuthorization) headers.set("authorization", `Bearer ${key}`);
+  const used = KEY_HEADERS.filter((name) => headers.has(name));
+  for (const name of used) headers.set(name, key);
+  if (used.length === 0 || headers.has("authorization")) headers.set("authorization", `Bearer ${key}`);
   const init: RequestInit = redirect === undefined ? { headers } : { headers, redirect };
   return new Request(request, init);
 }
@@ -334,6 +340,7 @@ export function createSwitcher(deps: SwitcherDeps) {
   function statusText(): string {
     return formatStatus({
       version: deps.options.version,
+      connectHint: deps.options.connectHint,
       accounts,
       currentID: current,
       reason: currentReason,
@@ -523,7 +530,7 @@ export function createSwitcher(deps: SwitcherDeps) {
             const template = cloneRequest(base);
             if (template === undefined) return;
             const superseded = response;
-            response = await deps.fetch(withKey(template, credential.key, "manual"));
+            response = await (input.fetch ?? deps.fetch)(withKey(template, credential.key, "manual"));
             if (superseded !== first) release(superseded);
             accountID = target.id;
           }

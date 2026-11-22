@@ -24,3 +24,4 @@ jobs:
         run: |
           node --input-type=module -e 'const s = await import("opencode-go-switch/server"); const r = await import("opencode-go-switch/rpc"); const m = await import("opencode-go-switch"); if (s.default.id !== "opencode-go-switch" || m.default !== s.default || !r.Contract) throw new Error("package exports do not resolve to the plugin")'
           bun -e 'const t = await import("opencode-go-switch/tui"); if (!t.default) throw new Error("tui entry has no default export")'
+          node --input-type=module -e 'const p = await import("opencode-go-switch/pi"); if (typeof p.default !== "function") throw new Error("pi entry has no extension factory")'

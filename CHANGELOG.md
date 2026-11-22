@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file. The format is b
 
 ## Unreleased
 
+### Added
+
+- Pi extension in the same package (`pi install npm:opencode-go-switch`): switches OpenCode Go accounts inside the same request in Pi, with extra login slots for further accounts, the `/go-accounts` command, and the `go_accounts` tool.
+
+### Fixed
+
+- A request that authenticates with `x-goog-api-key` (Go models on the Google protocol) now carries the chosen account's key there, including on the retry, instead of keeping the previous key next to a new bearer header.
+
 ## 1.0.1 - 2026-11-18
 
 ### Changed

@@ -4,7 +4,7 @@ Thanks for helping make the switch predictable. Focused fixes, reproductions, an
 
 ## Development setup
 
-You need Bun 1.2 or newer. OpenCode itself is not required for development; the tests drive the plugin through a fake host.
+You need Bun 1.2 or newer. OpenCode itself is not required for development; the tests drive the plugin through a fake host. The Pi tests use Pi's own registry and protocol adapters over a fake network.
 
 ```bash
 git clone https://github.com/xonika9/opencode-go-switch.git
@@ -24,6 +24,7 @@ bun run build
 - `src/status.ts` owns the text the `go_accounts` tool prints.
 - `src/server.ts` is thin wiring: options, hooks, the tool, the RPC contract, and timers.
 - `src/rpc.ts` and `src/tui.ts` own the switch notification.
+- `src/pi.ts` is the Pi extension: provider wrapping, the command, the tool, and the remembered account. `src/pi-accounts.ts` owns where Pi keeps the accounts, and `src/fetch.ts` runs a request through the switcher for a host without request hooks.
 
 Change behavior in its module, not in a caller, and do not duplicate the selection rule or the usage parser.
 

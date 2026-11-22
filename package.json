@@ -1,7 +1,7 @@
 {
   "name": "opencode-go-switch",
   "version": "1.0.1",
-  "description": "Go Switch: an OpenCode plugin that keeps you on a working OpenCode Go subscription and switches accounts automatically when a quota runs out.",
+  "description": "Go Switch: an OpenCode plugin and Pi extension that keeps you on a working OpenCode Go subscription and switches accounts automatically when a quota runs out.",
   "type": "module",
   "license": "MIT",
   "author": "xonika9",
@@ -21,7 +21,9 @@
     "account-switching",
     "rate-limit",
     "quota",
-    "failover"
+    "failover",
+    "pi-package",
+    "pi-extension"
   ],
   "main": "./dist/server.js",
   "types": "./dist/server.d.ts",
@@ -41,7 +43,16 @@
     "./rpc": {
       "types": "./dist/rpc.d.ts",
       "import": "./dist/rpc.js"
+    },
+    "./pi": {
+      "types": "./dist/pi.d.ts",
+      "import": "./dist/pi.js"
     }
+  },
+  "pi": {
+    "extensions": [
+      "./dist/pi.js"
+    ]
   },
   "files": [
     "dist",
@@ -62,14 +73,31 @@
     "prepublishOnly": "bun run check && bun run build"
   },
   "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
     "@opencode/plugin": ">=2.3.0 <3",
-    "effect": "^4.1.0"
+    "effect": "^4.1.0",
+    "typebox": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-ai": {
+      "optional": true
+    },
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "typebox": {
+      "optional": true
+    }
   },
   "devDependencies": {
+    "@earendil-works/pi-ai": "1.6.0",
+    "@earendil-works/pi-coding-agent": "1.6.0",
     "@opencode/plugin": "2.3.0",
     "@types/bun": "1.4.4",
     "effect": "4.1.0",
     "solid-js": "1.9.12",
+    "typebox": "1.3.27",
     "typescript": "^5.9.3"
   },
   "publishConfig": {

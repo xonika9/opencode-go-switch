@@ -1,6 +1,12 @@
-import { readFileSync } from "node:fs";
 import { Plugin } from "@opencode/plugin";
 import { Schema } from "effect";
+import {
+  DEFAULT_FALLBACK_COOLDOWN_MS,
+  DEFAULT_LIMIT_USAGE_BUDGET_MS,
+  DEFAULT_POLL_INTERVAL_MS,
+  DEFAULT_USAGE_TIMEOUT_MS,
+  VERSION,
+} from "./defaults.ts";
 import { Contract } from "./rpc.ts";
 import { createSwitcher } from "./switcher.ts";
 import type { SwitcherOptions } from "./switcher.ts";
@@ -12,11 +18,6 @@ type IntegrationConnection = Awaited<ReturnType<Context["integration"]["get"]>>[
 type Disposable = { dispose: () => Promise<void> | void };
 
 const STORAGE_KEY = "opencode-go-switch.current";
-const DEFAULT_POLL_INTERVAL_MS = 300_000;
-const DEFAULT_USAGE_TIMEOUT_MS = 5_000;
-const DEFAULT_FALLBACK_COOLDOWN_MS = 900_000;
-const DEFAULT_LIMIT_USAGE_BUDGET_MS = 2_000;
-const UNKNOWN_VERSION = "unknown";
 
 const toolInput = Schema.Struct({ select: Schema.optional(Schema.String) });
 
@@ -25,25 +26,6 @@ interface Options extends SwitcherOptions {
   readonly integrationID: string;
   readonly providerID: string;
 }
-
-/**
- * The package's own version, read from the file beside the module. Both `src/` and `dist/` sit one
- * directory below the package root, which is why the import graph must not carry package.json: it
- * lives outside the build's rootDir.
- */
-function readVersion(): string {
-  try {
-    const raw = readFileSync(new URL("../package.json", import.meta.url), "utf8");
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null) return UNKNOWN_VERSION;
-    const version = (parsed as { version?: unknown }).version;
-    return typeof version === "string" && version.trim() !== "" ? version.trim() : UNKNOWN_VERSION;
-  } catch {
-    return UNKNOWN_VERSION;
-  }
-}
-
-const VERSION = readVersion();
 
 function numberOption(value: unknown, fallback: number, min: number): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < min) return fallback;
@@ -65,6 +47,7 @@ export function readOptions(raw: Readonly<Record<string, unknown>>): Options {
     integrationID: stringOption(raw.integrationID, "opencode-go"),
     providerID: stringOption(raw.providerID, "opencode-go"),
     version: VERSION,
+    connectHint: "Add one under Integrations in OpenCode settings.",
   };
 }
 

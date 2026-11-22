@@ -120,6 +120,7 @@ export function createHarness(input: HarnessOptions): Harness {
       usageTimeoutMs: 100,
       limitUsageBudgetMs: 2_000,
       version: "1.0.0",
+      connectHint: "Connect one in the test host.",
       ...input.options,
     },
     loadAccounts: async () =>

@@ -12,6 +12,8 @@ export interface LastSwitch {
 
 export interface StatusInput {
   readonly version: string;
+  /** Where to connect an account, printed when none is connected. */
+  readonly connectHint: string;
   readonly accounts: readonly Account[];
   readonly currentID: string | null;
   readonly reason: string;
@@ -140,7 +142,7 @@ export function formatStatus(input: StatusInput): string {
   ];
 
   if (input.accounts.length === 0) {
-    lines.push("", "No OpenCode Go keys are connected. Add one under Integrations in OpenCode settings.");
+    lines.push("", `No OpenCode Go keys are connected. ${input.connectHint}`);
     return lines.join("\n");
   }
 
