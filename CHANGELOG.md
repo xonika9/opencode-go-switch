@@ -1,12 +1,18 @@
 # Changelog
 
-All notable changes to this project are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses [semantic versioning](https://semver.org/).
+All notable changes to this project are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases after `1.0.1` use calendar versions (see [Versioning](https://github.com/xonika9/opencode-go-switch/blob/main/CONTRIBUTING.md#versioning)); earlier ones use semantic versions.
 
 ## Unreleased
+
+## 26.11.2201 - 2026-11-22
 
 ### Added
 
 - Pi extension in the same package (`pi install npm:opencode-go-switch`): switches OpenCode Go accounts inside the same request in Pi, with extra login slots for further accounts, the `/go-accounts` command, and the `go_accounts` tool.
+
+### Changed
+
+- Releases use calendar versions from here on. The number says nothing about compatibility, and a range such as `^1.0.1` does not include it. Nothing changes for an existing OpenCode setup.
 
 ### Fixed
 

@@ -52,7 +52,11 @@ Before you open it:
 - update `README.md` when installation, options, the `go_accounts` tool, or limitations change;
 - confirm the diff contains no keys, key fragments, or personal paths.
 
-Releases use semantic versions and are cut by the maintainer; contributors do not bump the version.
+Releases are cut by the maintainer; contributors do not bump the version.
+
+## Versioning
+
+Releases use calendar versions `YY.M.DNN`: the date in `Europe/Moscow`, with the day followed by a two-digit release number that starts at `01` each day. Year, month, and day have no leading zeros, so the second release of 5 December 2026 is `26.12.502`. npm accepts three numbers only, which is why the day and the release number share the last one. Compatibility changes do not determine the number; describe them in `CHANGELOG.md`. The same string goes into `package.json`, `CHANGELOG.md`, and the `v` tag. Releases up to `1.0.1` keep their semantic versions.
 
 ## Reporting bugs and vulnerabilities
 

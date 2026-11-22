@@ -1,6 +1,6 @@
 {
   "name": "opencode-go-switch",
-  "version": "1.0.1",
+  "version": "26.11.2201",
   "description": "Go Switch: an OpenCode plugin and Pi extension that keeps you on a working OpenCode Go subscription and switches accounts automatically when a quota runs out.",
   "type": "module",
   "license": "MIT",
