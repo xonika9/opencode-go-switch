@@ -1,6 +1,6 @@
 # opencode-go-switch repository
 
-This repository is the public source of an OpenCode V2 plugin that switches between OpenCode Go accounts. Work directly on `main`; do not create branches unless the user asks.
+This repository is the public source of one npm package that switches between OpenCode Go accounts: an OpenCode V2 plugin and a Pi extension. Work directly on `main`; do not create branches unless the user asks.
 
 ## Sources of truth
 
@@ -9,7 +9,9 @@ This repository is the public source of an OpenCode V2 plugin that switches betw
 - `src/switcher.ts` owns runtime state, polling, switching, and the request, response, and retry hook handlers.
 - `src/status.ts` owns the text the `go_accounts` tool prints. Keep its wording in sync with the states the selection rule can produce.
 - `src/server.ts` is thin wiring: options, hook registration, the tool, the RPC contract, and timers. Behavior belongs in the modules above.
-- `src/rpc.ts` and `src/tui.ts` own the switch notification. They carry only a label and a reason, never key material.
+- `src/rpc.ts` and `src/tui.ts` own the OpenCode switch notification. They carry only a label and a reason, never key material.
+- `src/pi.ts` is the Pi counterpart of `src/server.ts`. `src/pi-accounts.ts` owns where Pi keeps the accounts, and `src/fetch.ts` runs a request through the switcher for a host without request hooks.
+- Modules used by both hosts must not import either host's packages: an installation for one host does not contain the other's.
 
 ## Commands
 
@@ -19,15 +21,16 @@ This repository is the public source of an OpenCode V2 plugin that switches betw
 
 ## Keys and privacy
 
-- Never log, print, return, store, or commit API keys or key fragments. Read them from OpenCode's credential store into memory only.
+- Never log, print, return, store, or commit API keys or key fragments. Read them from the host's credential store into memory only.
 - Keep tool output, errors, tests, and fixtures free of key material.
 - Do not add telemetry or send usage data anywhere except the configured usage endpoint, or the https origin named in a credential's `server` metadata.
 
 ## Tests
 
-- Tests use a fake `fetch` and a fake plugin context. No real keys, no real network.
+- Tests use a fake `fetch` and a fake plugin context; the Pi tests put the fake `fetch` under Pi's own registry and protocol adapters. No real keys, no real network.
 - A change to selection or switching needs a test for the choice that was made and for the account that was not chosen.
 - For a live `opencode run` with test-only plugin options, set `OPENCODE_CONFIG_DIR` to an empty directory together with `OPENCODE_CONFIG_CONTENT`. `OPENCODE_CONFIG_CONTENT` alone layers on top of the user's config, so a plugin listed in both loads twice and every switch is handled twice. Rebuild `dist` first; a `file://` entry loads the compiled package.
+- For a Pi run with fake accounts, set `PI_CODING_AGENT_DIR` to a temporary directory; otherwise Pi reads and writes the user's `auth.json`. Rebuild `dist` first; the Pi manifest points there too.
 
 ## Documentation
 
